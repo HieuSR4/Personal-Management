@@ -606,6 +606,34 @@ textarea {
   color: #dc2626;
 }
 
+/* Actions under charts */
+.chart-actions-card {
+  padding-top: 14px;
+}
+
+.chart-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+}
+
+.chart-actions .icon-btn {
+  width: auto;
+  padding: 8px 12px;
+  font-weight: 700;
+}
+
+/* Dark-friendly buttons under charts */
+.chart-actions-row .icon-btn {
+  background: rgba(2, 6, 23, 0.6);
+  border: 1px solid #334155;
+  color: #e2e8f0;
+}
+.chart-actions-row .icon-btn:hover {
+  background: rgba(30, 41, 59, 0.7);
+  border-color: #475569;
+}
+
 /* ---- Finance sources ---- */
 .list-sources .source-actions {
   text-align: right;

@@ -65,6 +65,7 @@ export function FinancePage() {
   const [error, setError] = useState<string | null>(null)
   const [editingId, setEditingId] = useState<string | null>(null)
   const [showForm, setShowForm] = useState(false)
+  const [analysisModal, setAnalysisModal] = useState<null | 'trend' | 'compare' | 'top' | 'summary'>(null)
   const [sourceInputs, setSourceInputs] = useState<Record<string, string>>({})
   const [sourceSaving, setSourceSaving] = useState<Record<string, boolean>>({})
   const [sourceExpanded, setSourceExpanded] = useState<Record<string, boolean>>({})
@@ -278,6 +279,8 @@ export function FinancePage() {
         </div>
       </div>
 
+      
+
       {/* Sources overview */}
       <div className="card">
         <h3>Nguồn tiền</h3>
@@ -429,7 +432,35 @@ export function FinancePage() {
             return <BarChart data={data} />
           })()}
         </div>
+        {/* Actions row spanning full width under charts */}
+        <div className="chart-actions-row" style={{ gridColumn: '1 / -1' }}>
+          <div className="chart-actions">
+            <button type="button" className="icon-btn" title="Bieu do xu huong chi tieu" onClick={() => setAnalysisModal('trend')}>Biểu đồ xu hướng chi tiêu</button>
+            <button type="button" className="icon-btn" title="So sanh chi tieu" onClick={() => setAnalysisModal('compare')}>So sánh chi tiêu</button>
+            <button type="button" className="icon-btn" title="Top danh muc chi tieu" onClick={() => setAnalysisModal('top')}>Top danh mục chi tiêu</button>
+            <button type="button" className="icon-btn" title="Bao cao tong quan dinh ky" onClick={() => setAnalysisModal('summary')}>Báo cáo tổng quan định kỳ</button>
+          </div>
+        </div>
       </div>
+
+      {analysisModal && (
+        <div className="modal-overlay" onClick={() => setAnalysisModal(null)}>
+          <div className="modal" onClick={(e) => e.stopPropagation()}>
+            <div className="form" style={{ gap: 16 }}>
+              <h3>
+                {analysisModal === 'trend' && 'Biểu đồ xu hướng chi tiêu'}
+                {analysisModal === 'compare' && 'So sánh chi tiêu'}
+                {analysisModal === 'top' && 'Top danh mục chi tiêu'}
+                {analysisModal === 'summary' && 'Báo cáo tổng quan định kỳ'}
+              </h3>
+              <p style={{ margin: 0, color: '#94a3b8' }}>Nội dung sẽ được bổ sung chi tiết theo chức năng. Hiện tại là cửa sổ minh họa.</p>
+              <div className="form-actions">
+                <button type="button" onClick={() => setAnalysisModal(null)}>Đóng</button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
 
       {showForm && (
         <div className="modal-overlay" onClick={cancelEditing}>

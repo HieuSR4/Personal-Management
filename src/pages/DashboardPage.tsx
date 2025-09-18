@@ -47,15 +47,15 @@ export function DashboardPage() {
     <section className="page dashboard-page">
       <div className="page-header">
         <div>
-          <h2>Tong quan</h2>
-          <p>Tom tat nhanh cac hoat dong gan day cua ban.</p>
+          <h2>Tổng quan</h2>
+          <p>Tóm tắt nhanh các hoạt động gần đây của bạn.</p>
         </div>
       </div>
 
       <div className="summary-grid">
         <div className="card">
-          <h3>Tai chinh</h3>
-          <p>So du hien tai</p>
+          <h3>Tài chính</h3>
+          <p>Số dư hiện tại</p>
           <strong className={balance >= 0 ? 'positive' : 'negative'}>
             {balance.toLocaleString('vi-VN')} VND
           </strong>
@@ -65,11 +65,11 @@ export function DashboardPage() {
           </div>
         </div>
         <div className="card">
-          <h3>Viec can lam</h3>
-          <p>Ban con {pendingTasks.length} viec chua hoan thanh.</p>
+          <h3>Các việc cần làm</h3>
+          <p>Bạn còn {pendingTasks.length} việc chưa hoàn thành.</p>
           <ul>
             {upcomingTasks.length === 0 ? (
-              <li>Khong co viec sap den han.</li>
+              <li>Không có việc sắp đến hạn.</li>
             ) : (
               upcomingTasks.map((task) => (
                 <li key={task.id}>
@@ -83,15 +83,15 @@ export function DashboardPage() {
           </ul>
         </div>
         <div className="card">
-          <h3>Ghi chu gan day</h3>
+          <h3>Ghi chú gần đây</h3>
           <ul>
             {latestNotes.length === 0 ? (
-              <li>Chua co ghi chu nao.</li>
+              <li>Chưa có ghi chú nào.</li>
             ) : (
               latestNotes.map((note) => (
                 <li key={note.id}>
                   <strong>{note.title}</strong>
-                  <span> - cap nhat {new Date(note.updatedAt).toLocaleString('vi-VN')}</span>
+                  <span> - cập nhật {new Date(note.updatedAt).toLocaleString('vi-VN')}</span>
                 </li>
               ))
             )}
