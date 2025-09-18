@@ -43,17 +43,36 @@ jobs:
             echo "FIREBASE_SECRETS not set; using individual VITE_* secrets if provided"
           fi
 
-      - name: Build (Vite)
+      - name: Export individual secrets if provided (optional)
         env:
-          # Map GitHub Secrets/Vars to Vite env (prefix VITE_)
-          VITE_FIREBASE_API_KEY: ${{ secrets.VITE_FIREBASE_API_KEY }}
-          VITE_FIREBASE_AUTH_DOMAIN: ${{ secrets.VITE_FIREBASE_AUTH_DOMAIN }}
-          VITE_FIREBASE_PROJECT_ID: ${{ secrets.VITE_FIREBASE_PROJECT_ID }}
-          VITE_FIREBASE_STORAGE_BUCKET: ${{ secrets.VITE_FIREBASE_STORAGE_BUCKET }}
-          VITE_FIREBASE_MESSAGING_SENDER_ID: ${{ secrets.VITE_FIREBASE_MESSAGING_SENDER_ID }}
-          VITE_FIREBASE_APP_ID: ${{ secrets.VITE_FIREBASE_APP_ID }}
-          VITE_FIREBASE_MEASUREMENT_ID: ${{ secrets.VITE_FIREBASE_MEASUREMENT_ID }}
-          VITE_ALLOWED_GOOGLE_EMAILS: ${{ secrets.VITE_ALLOWED_GOOGLE_EMAILS }}
+          S_VITE_FIREBASE_API_KEY: ${{ secrets.VITE_FIREBASE_API_KEY }}
+          S_VITE_FIREBASE_AUTH_DOMAIN: ${{ secrets.VITE_FIREBASE_AUTH_DOMAIN }}
+          S_VITE_FIREBASE_PROJECT_ID: ${{ secrets.VITE_FIREBASE_PROJECT_ID }}
+          S_VITE_FIREBASE_STORAGE_BUCKET: ${{ secrets.VITE_FIREBASE_STORAGE_BUCKET }}
+          S_VITE_FIREBASE_MESSAGING_SENDER_ID: ${{ secrets.VITE_FIREBASE_MESSAGING_SENDER_ID }}
+          S_VITE_FIREBASE_APP_ID: ${{ secrets.VITE_FIREBASE_APP_ID }}
+          S_VITE_FIREBASE_MEASUREMENT_ID: ${{ secrets.VITE_FIREBASE_MEASUREMENT_ID }}
+          S_VITE_ALLOWED_GOOGLE_EMAILS: ${{ secrets.VITE_ALLOWED_GOOGLE_EMAILS }}
+          S_VITE_FIREBASE_EMULATOR: ${{ secrets.VITE_FIREBASE_EMULATOR }}
+        run: |
+          add() { [ -n "$2" ] && echo "$1=$2" >> "$GITHUB_ENV"; }
+          add VITE_FIREBASE_API_KEY "$S_VITE_FIREBASE_API_KEY"
+          add VITE_FIREBASE_AUTH_DOMAIN "$S_VITE_FIREBASE_AUTH_DOMAIN"
+          add VITE_FIREBASE_PROJECT_ID "$S_VITE_FIREBASE_PROJECT_ID"
+          add VITE_FIREBASE_STORAGE_BUCKET "$S_VITE_FIREBASE_STORAGE_BUCKET"
+          add VITE_FIREBASE_MESSAGING_SENDER_ID "$S_VITE_FIREBASE_MESSAGING_SENDER_ID"
+          add VITE_FIREBASE_APP_ID "$S_VITE_FIREBASE_APP_ID"
+          add VITE_FIREBASE_MEASUREMENT_ID "$S_VITE_FIREBASE_MEASUREMENT_ID"
+          add VITE_ALLOWED_GOOGLE_EMAILS "$S_VITE_ALLOWED_GOOGLE_EMAILS"
+          add VITE_FIREBASE_EMULATOR "$S_VITE_FIREBASE_EMULATOR"
+
+      - name: Debug env presence (names only)
+        run: |
+          for k in VITE_FIREBASE_API_KEY VITE_FIREBASE_AUTH_DOMAIN VITE_FIREBASE_PROJECT_ID VITE_FIREBASE_APP_ID; do
+            if [ -n "${!k}" ]; then echo "env:$k=SET"; else echo "env:$k=EMPTY"; fi
+          done
+
+      - name: Build (Vite)
         run: |
           # Set Vite base for GitHub Pages
           REPO_NAME=${{ github.event.repository.name }}
