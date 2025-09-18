@@ -1,4 +1,4 @@
-import React from 'react'
+// React import not required with modern JSX transform
 
 type BarDatum = {
   label: string
@@ -31,4 +31,3 @@ export function BarChart({ data, height = 140 }: { data: BarDatum[]; height?: nu
     </div>
   )
 }
-
