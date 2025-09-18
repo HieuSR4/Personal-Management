@@ -1,0 +1,18 @@
+# Normalize line endings
+# Keep text files with LF endings across platforms (especially for YAML/JS/TS used in CI)
+* text=auto
+
+# Force LF for source and config files
+*.yml text eol=lf
+*.yaml text eol=lf
+*.js text eol=lf
+*.jsx text eol=lf
+*.ts text eol=lf
+*.tsx text eol=lf
+*.css text eol=lf
+*.html text eol=lf
+*.md text eol=lf
+*.sh text eol=lf
+
+# Windows-specific scripts can use CRLF if needed
+*.bat eol=crlf
