@@ -31,6 +31,18 @@ jobs:
       - name: Install deps
         run: npm ci
 
+      - name: Inject env from FIREBASE_SECRETS (optional)
+        env:
+          FIREBASE_SECRETS: ${{ secrets.FIREBASE_SECRETS }}
+        run: |
+          if [ -n "$FIREBASE_SECRETS" ]; then
+            echo "Injecting FIREBASE_SECRETS into env"
+            # Expect lines like KEY=VALUE per line
+            printf "%s\n" "$FIREBASE_SECRETS" >> "$GITHUB_ENV"
+          else
+            echo "FIREBASE_SECRETS not set; using individual VITE_* secrets if provided"
+          fi
+
       - name: Build (Vite)
         env:
           # Map GitHub Secrets/Vars to Vite env (prefix VITE_)
@@ -65,4 +77,3 @@ jobs:
       - name: Deploy to GitHub Pages
         id: deployment
         uses: actions/deploy-pages@v4
-
