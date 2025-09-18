@@ -19,6 +19,7 @@ type FirestoreItem = { id: string; [key: string]: unknown }
 type FirestoreCallback<T extends FirestoreItem> = (items: T[]) => void
 
 function collectionPath(userId: string, key: 'transactions' | 'tasks' | 'notes') {
+  if (!db) throw new Error('Firebase is not initialized')
   return collection(db, 'users', userId, key)
 }
 

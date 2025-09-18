@@ -67,14 +67,6 @@ export function FinancePage() {
     return s
   }
 
-  const sourceClass = (s?: string) => {
-    if (!s) return ''
-    const key = s.toLowerCase()
-    if (key.includes('momo')) return 'source-momo'
-    if (key.includes('vietin')) return 'source-vietinbank'
-    if (key.includes('mbbank') || key === 'mb') return 'source-mbbank'
-    return ''
-  }
 
   const handleSubmit = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault()

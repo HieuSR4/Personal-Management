@@ -45,9 +45,10 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       return
     }
 
-    const unsubscribe = onAuthStateChanged(auth, async (firebaseUser) => {
+    const authInstance = auth
+    const unsubscribe = onAuthStateChanged(authInstance, async (firebaseUser) => {
       if (firebaseUser && !isEmailAllowed(firebaseUser.email)) {
-        await signOut(auth)
+        await signOut(authInstance)
         setUser(null)
         setLoading(false)
         console.warn('Blocked sign-in: email not allowed')
