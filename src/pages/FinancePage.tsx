@@ -1,8 +1,8 @@
 import type { FormEvent } from 'react'
 import { useEffect, useMemo, useState } from 'react'
-import { deleteTransaction, subscribeToTransactions, updateTransaction } from '../services/dataService'
+import { deleteTransaction, subscribeToTransactions, updateTransaction, subscribeToSources, addSource } from '../services/dataService'
 import { saveTransaction } from '../services/saveService'
-import type { Transaction, TransactionType } from '../types'
+import type { Transaction, TransactionType, MoneySource } from '../types'
 import { useAuth } from '../contexts/AuthContext'
 import { DonutChart } from '../components/DonutChart'
 import { BarChart } from '../components/BarChart'
@@ -11,7 +11,41 @@ const LOGOS = {
   MoMo: new URL('../../res/img/momo.png', import.meta.url).href,
   Vietinbank: new URL('../../res/img/vietinbank.png', import.meta.url).href,
   MBBank: new URL('../../res/img/mbbank.png', import.meta.url).href,
+  Binance: new URL('../../res/img/binance.png', import.meta.url).href,
 } as const
+
+// Category presets with fixed colors
+const EXPENSE_CATEGORIES: { key: string; label: string; color: string }[] = [
+  { key: 'Ăn uống', label: 'Ăn uống', color: '#ef4444' },
+  { key: 'Đi lại', label: 'Đi lại', color: '#f59e0b' },
+  { key: 'Hóa đơn', label: 'Hóa đơn', color: '#0ea5e9' },
+  { key: 'Mua sắm', label: 'Mua sắm', color: '#8b5cf6' },
+  { key: 'Sức khỏe', label: 'Sức khỏe', color: '#14b8a6' },
+  { key: 'Giải trí', label: 'Giải trí', color: '#f97316' },
+  { key: 'Giáo dục', label: 'Giáo dục', color: '#22c55e' },
+  { key: 'Nhà cửa', label: 'Nhà cửa', color: '#64748b' },
+  { key: 'Du lịch', label: 'Du lịch', color: '#06b6d4' },
+  { key: 'Khác', label: 'Khác', color: '#475569' },
+]
+const INCOME_CATEGORIES: { key: string; label: string; color: string }[] = [
+  { key: 'Lương', label: 'Lương', color: '#22c55e' },
+  { key: 'Thưởng', label: 'Thưởng', color: '#10b981' },
+  { key: 'Khác', label: 'Khác', color: '#84cc16' },
+]
+const ALL_CATEGORIES = [...EXPENSE_CATEGORIES, ...INCOME_CATEGORIES]
+
+const getCategoryOptions = (type: TransactionType) =>
+  type === 'expense' ? EXPENSE_CATEGORIES : INCOME_CATEGORIES
+
+function colorForCategory(label: string) {
+  const found = ALL_CATEGORIES.find((c) => c.label === label)
+  if (found) return found.color
+  // Fallback deterministic palette
+  const palette = ['#ef4444', '#f59e0b', '#10b981', '#0ea5e9', '#8b5cf6', '#14b8a6', '#f97316']
+  let hash = 0
+  for (let i = 0; i < label.length; i++) hash = (hash * 31 + label.charCodeAt(i)) >>> 0
+  return palette[hash % palette.length]
+}
 
 const defaultFormState = {
   type: 'expense' as TransactionType,
@@ -25,15 +59,24 @@ const defaultFormState = {
 export function FinancePage() {
   const { user } = useAuth()
   const [transactions, setTransactions] = useState<Transaction[]>([])
+  const [sources, setSources] = useState<MoneySource[]>([])
   const [formState, setFormState] = useState(defaultFormState)
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [editingId, setEditingId] = useState<string | null>(null)
   const [showForm, setShowForm] = useState(false)
+  const [sourceInputs, setSourceInputs] = useState<Record<string, string>>({})
+  const [sourceSaving, setSourceSaving] = useState<Record<string, boolean>>({})
+  const [sourceExpanded, setSourceExpanded] = useState<Record<string, boolean>>({})
 
   useEffect(() => {
     if (!user) return
     return subscribeToTransactions(user.uid, setTransactions)
+  }, [user])
+
+  useEffect(() => {
+    if (!user) return
+    return subscribeToSources(user.uid, setSources)
   }, [user])
 
   const summary = useMemo(() => {
@@ -50,6 +93,48 @@ export function FinancePage() {
     )
   }, [transactions])
   const balance = summary.income - summary.expense
+
+  const sourceBalances = useMemo(() => {
+    const sums = new Map<string, number>()
+    sources.forEach((s) => sums.set(s.key, Number(s.initialBalance || 0)))
+    transactions.forEach((t) => {
+      const key = (t as any).source as string | undefined
+      if (!key) return
+      const curr = sums.get(key) ?? 0
+      const delta = t.type === 'income' ? t.amount : -t.amount
+      sums.set(key, curr + delta)
+    })
+    return sums
+  }, [transactions, sources])
+
+  const handleDepositToSource = async (s: MoneySource) => {
+    if (!user) return
+    const raw = sourceInputs[s.id] || ''
+    const amount = toNumber(raw)
+    if (amount <= 0) {
+      setError('So tien nap vao phai lon hon 0')
+      return
+    }
+    setError(null)
+    setSourceSaving((prev) => ({ ...prev, [s.id]: true }))
+    try {
+      await saveTransaction(user.uid, {
+        amount,
+        type: 'income',
+        category: 'Nạp tiền',
+        note: `Nạp vào ${s.name}`,
+        source: s.key,
+        date: new Date().toISOString().slice(0, 10),
+      })
+      setSourceInputs((prev) => ({ ...prev, [s.id]: '' }))
+      setSourceExpanded((prev) => ({ ...prev, [s.id]: false }))
+    } catch (e) {
+      console.error(e)
+      setError('Không thể nạp tiền vào nguồn này.')
+    } finally {
+      setSourceSaving((prev) => ({ ...prev, [s.id]: false }))
+    }
+  }
 
   const digitsOnly = (s: string) => s.replace(/\D/g, '')
   const formatAmount = (s: string) => {
@@ -193,6 +278,100 @@ export function FinancePage() {
         </div>
       </div>
 
+      {/* Sources overview */}
+      <div className="card">
+        <h3>Nguồn tiền</h3>
+        {sources.length === 0 ? (
+          <div className="mini-stats">
+            <span>Chưa có nguồn tiền nào.</span>
+            {user && (
+              <div className="form-actions">
+                <button
+                  type="button"
+                  onClick={async () => {
+                    try {
+                      const defaults: Array<{ key: string; name: string }> = [
+                        { key: 'MoMo', name: 'Ví điện tử MoMo' },
+                        { key: 'Vietinbank', name: 'Ngân hàng Vietinbank' },
+                        { key: 'Binance', name: 'Ví Binance' },
+                      ]
+                      for (const d of defaults) {
+                        await addSource(user.uid, { key: d.key, name: d.name, initialBalance: 0 })
+                      }
+                    } catch (e) {
+                      console.error(e)
+                      setError('Không thể thêm nguồn mặc định.')
+                    }
+                  }}
+                >
+                  Thêm nguồn mặc định (MoMo, Vietinbank, Binance)
+                </button>
+              </div>
+            )}
+          </div>
+        ) : (
+          <ul className="list-sources" style={{ listStyle: 'none', margin: 0, padding: 0, display: 'grid', gap: 12, gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))' }}>
+            {sources.map((s) => {
+              const bal = sourceBalances.get(s.key) ?? (s.initialBalance || 0)
+              const key = s.key as keyof typeof LOGOS
+              const logo = LOGOS[key]
+              return (
+                <li key={s.id} style={{ border: '1px solid #e2e8f0', borderRadius: 12, padding: 12, display: 'grid', gridTemplateColumns: '1fr auto', gap: 12, alignItems: 'center' }}>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+                    {logo ? (
+                      <img className="source-logo" src={logo} alt={s.name} title={s.name} />
+                    ) : (
+                      <div style={{ width: 28, height: 28, borderRadius: 6, background: '#eef2ff', color: '#3730a3', display: 'inline-flex', alignItems: 'center', justifyContent: 'center', fontWeight: 700 }}>
+                        {s.name.slice(0, 1).toUpperCase()}
+                      </div>
+                    )}
+                    <div>
+                      <strong>{s.name}</strong>
+                      <span style={{ display: 'block', fontSize: '0.85rem', color: '#64748b' }}>{s.key}</span>
+                    </div>
+                  </div>
+                  <div className="source-actions">
+                    <div>
+                      <span style={{ display: 'block', fontSize: '0.85rem', color: '#64748b' }}>Số dư</span>
+                      <strong className={bal >= 0 ? 'positive' : 'negative'}>{bal.toLocaleString('vi-VN')} VND</strong>
+                    </div>
+                    <button
+                      type="button"
+                      title="Nạp vào nguồn"
+                      aria-label={`Nạp vào ${s.name}`}
+                      onClick={() => setSourceExpanded((prev) => ({ ...prev, [s.id]: !prev[s.id] }))}
+                      className="icon-btn source-add-btn"
+                    >
+                      +
+                    </button>
+                  </div>
+                  {sourceExpanded[s.id] && (
+                    <form
+                      onSubmit={(e) => { e.preventDefault(); handleDepositToSource(s) }}
+                      className="source-deposit-form"
+                    >
+                    <input
+                      type="text"
+                      inputMode="numeric"
+                      autoFocus
+                      placeholder="Số tiền nạp"
+                      value={sourceInputs[s.id] ?? ''}
+                      onChange={(e) => setSourceInputs((prev) => ({ ...prev, [s.id]: (e.target.value || '').replace(/[^\d.,\s]/g, '') }))}
+                      onBlur={(e) => setSourceInputs((prev) => ({ ...prev, [s.id]: (e.target.value ? (Number((e.target.value || '').replace(/\D/g, '')) || 0).toLocaleString('vi-VN') : '') }))}
+                      style={{ maxWidth: 180 }}
+                    />
+                    <button type="submit" disabled={!!sourceSaving[s.id]}>
+                      {sourceSaving[s.id] ? 'Đang nạp...' : 'Nạp' }
+                    </button>
+                    </form>
+                  )}
+                </li>
+              )
+            })}
+          </ul>
+        )}
+      </div>
+
       {/* Charts */}
       <div className="card charts-grid">
         <div className="chart-card">
@@ -208,11 +387,10 @@ export function FinancePage() {
               const key = t.category || 'Khác'
               byCat.set(key, (byCat.get(key) || 0) + t.amount)
             })
-            const palette = ['#ef4444', '#f59e0b', '#10b981', '#0ea5e9', '#8b5cf6', '#14b8a6', '#f97316']
             const data = Array.from(byCat.entries())
               .sort((a, b) => b[1] - a[1])
               .slice(0, 7)
-              .map(([label, value], i) => ({ label, value, color: palette[i % palette.length] }))
+              .map(([label, value]) => ({ label, value, color: colorForCategory(label) }))
             if (data.length === 0) return <p>Chưa có chi tiêu trong tháng này.</p>
             return (
               <div className="chart-flex">
@@ -270,6 +448,7 @@ export function FinancePage() {
                   >
                     <option value="income">Thu</option>
                     <option value="expense">Chi</option>
+                    <option value="Binance">Ví Binance</option>
                   </select>
                 </label>
                 <label>
@@ -295,6 +474,20 @@ export function FinancePage() {
                     }
                     placeholder="Ví dụ: Ăn uống, Lương, Đi lại..."
                   />
+                </label>
+                <label>
+                  Nhóm
+                  <select
+                    value={formState.category}
+                    onChange={(event) =>
+                      setFormState((prev) => ({ ...prev, category: event.target.value }))
+                    }
+                  >
+                    <option value="">-- Chọn nhóm --</option>
+                    {getCategoryOptions(formState.type).map((c) => (
+                      <option key={c.key} value={c.label}>{c.label}</option>
+                    ))}
+                  </select>
                 </label>
               </div>
               <div className="form-row">

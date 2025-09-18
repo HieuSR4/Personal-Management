@@ -10,7 +10,7 @@
   updateDoc,
 } from 'firebase/firestore'
 import { db } from '../lib/firebase'
-import type { Note, Task, Transaction } from '../types'
+import type { Note, Task, Transaction, MoneySource } from '../types'
 
 type Unsubscribe = () => void
 
@@ -18,7 +18,7 @@ type FirestoreItem = { id: string; [key: string]: unknown }
 
 type FirestoreCallback<T extends FirestoreItem> = (items: T[]) => void
 
-function collectionPath(userId: string, key: 'transactions' | 'tasks' | 'notes') {
+function collectionPath(userId: string, key: 'transactions' | 'tasks' | 'notes' | 'sources') {
   if (!db) throw new Error('Firebase is not initialized')
   return collection(db, 'users', userId, key)
 }
@@ -57,6 +57,31 @@ export function subscribeToTransactions(userId: string, callback: FirestoreCallb
     (error) => {
       const anyErr = error as { code?: string; message?: string }
       console.warn('subscribeToTransactions error:', anyErr?.code, anyErr?.message)
+    },
+  )
+}
+
+export function subscribeToSources(userId: string, callback: FirestoreCallback<MoneySource>): Unsubscribe {
+  const q = query(collectionPath(userId, 'sources'), orderBy('createdAt', 'desc'))
+  return onSnapshot(
+    q,
+    (snapshot) => {
+      const items: MoneySource[] = snapshot.docs.map((snap) => {
+        const data = snap.data() as Record<string, unknown>
+        return {
+          id: snap.id,
+          key: String(data.key ?? ''),
+          name: String(data.name ?? ''),
+          initialBalance: data.initialBalance !== undefined ? Number(data.initialBalance) : undefined,
+          createdAt: toISODate(data.createdAt),
+          updatedAt: data.updatedAt ? toISODate(data.updatedAt) : undefined,
+        }
+      })
+      callback(items)
+    },
+    (error) => {
+      const anyErr = error as { code?: string; message?: string }
+      console.warn('subscribeToSources error:', anyErr?.code, anyErr?.message)
     },
   )
 }
@@ -127,6 +152,39 @@ export function updateTransaction(userId: string, id: string, update: Partial<Om
 
 export function deleteTransaction(userId: string, id: string) {
   return deleteDoc(doc(collectionPath(userId, 'transactions'), id))
+}
+
+export function addSource(
+  userId: string,
+  source: Omit<MoneySource, 'id' | 'createdAt' | 'updatedAt'>,
+) {
+  return addDoc(collectionPath(userId, 'sources'), {
+    ...source,
+    initialBalance:
+      (source.initialBalance !== undefined && !Number.isNaN(Number(source.initialBalance)))
+        ? Number(source.initialBalance)
+        : 0,
+    createdAt: serverTimestamp(),
+  })
+}
+
+export function updateSource(
+  userId: string,
+  id: string,
+  update: Partial<Omit<MoneySource, 'id'>>,
+) {
+  return updateDoc(doc(collectionPath(userId, 'sources'), id), {
+    ...update,
+    initialBalance:
+      update.initialBalance !== undefined
+        ? Number(update.initialBalance)
+        : undefined,
+    updatedAt: serverTimestamp(),
+  })
+}
+
+export function deleteSource(userId: string, id: string) {
+  return deleteDoc(doc(collectionPath(userId, 'sources'), id))
 }
 
 export function addTask(userId: string, task: Omit<Task, 'id' | 'createdAt' | 'updatedAt'>) {

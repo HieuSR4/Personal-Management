@@ -11,6 +11,15 @@ export type Transaction = {
   updatedAt?: string
 }
 
+export type MoneySource = {
+  id: string
+  key: string
+  name: string
+  initialBalance?: number
+  createdAt: string
+  updatedAt?: string
+}
+
 export type Task = {
   id: string
   title: string
