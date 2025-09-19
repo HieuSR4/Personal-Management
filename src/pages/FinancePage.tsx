@@ -6,6 +6,7 @@ import type { Transaction, TransactionType, MoneySource } from '../types'
 import { useAuth } from '../contexts/AuthContext'
 import { DonutChart } from '../components/DonutChart'
 import { BarChart } from '../components/BarChart'
+import { combineDateWithCurrentTime } from '../utils/date.ts'
 
 const LOGOS = {
   MoMo: new URL('../../res/img/momo.png', import.meta.url).href,
@@ -108,6 +109,44 @@ export function FinancePage() {
     return sums
   }, [transactions, sources])
 
+  const sortedTransactions = useMemo(() => {
+    const parseTime = (value?: string) => {
+      if (!value) return 0
+      const time = new Date(value).getTime()
+      return Number.isNaN(time) ? 0 : time
+    }
+
+    const withSortKey = (transaction: Transaction) =>
+      Math.max(
+        transaction.sortTimestamp ?? 0,
+        parseTime(transaction.createdAt),
+        parseTime(transaction.updatedAt),
+      )
+
+    const originalOrder = new Map<string, number>()
+    transactions.forEach((transaction, index) => {
+      originalOrder.set(transaction.id, index)
+    })
+
+    return transactions
+      .slice()
+      .sort((a, b) => {
+        const sortKeyA = withSortKey(a)
+        const sortKeyB = withSortKey(b)
+        if (sortKeyA !== sortKeyB) return sortKeyB - sortKeyA
+
+        const createdAtA = parseTime(a.createdAt)
+        const createdAtB = parseTime(b.createdAt)
+        if (createdAtA !== createdAtB) return createdAtB - createdAtA
+
+        const fallbackA = a.sortTimestamp ?? 0
+        const fallbackB = b.sortTimestamp ?? 0
+        if (fallbackA !== fallbackB) return fallbackB - fallbackA
+
+        return (originalOrder.get(a.id) ?? 0) - (originalOrder.get(b.id) ?? 0)
+      })
+  }, [transactions])
+
   const handleDepositToSource = async (s: MoneySource) => {
     if (!user) return
     const raw = sourceInputs[s.id] || ''
@@ -176,7 +215,7 @@ export function FinancePage() {
         }
         if (previous.note && previous.note.trim()) update.note = previous.note.trim()
         if (previous.source && previous.source.trim()) update.source = previous.source.trim()
-        if (previous.date) update.createdAt = new Date(`${previous.date}T00:00:00`).toISOString()
+        if (previous.date) update.createdAt = combineDateWithCurrentTime(previous.date)
         await updateTransaction(user.uid, editingId, update)
         setEditingId(null)
         setFormState(defaultFormState)
@@ -582,11 +621,11 @@ export function FinancePage() {
 
       <div className="card list">
         <h3>Lịch sử giao dịch</h3>
-        {transactions.length === 0 ? (
+        {sortedTransactions.length === 0 ? (
           <p>Chưa có giao dịch nào. Hãy thêm giao dịch đầu tiên của bạn.</p>
         ) : (
           <ul>
-            {transactions.map((transaction) => (
+            {sortedTransactions.map((transaction) => (
               <li key={transaction.id} className={`item ${transaction.type}`}>
                 <div>
                   <strong>{transaction.category}</strong>

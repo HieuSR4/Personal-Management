@@ -34,24 +34,55 @@ function toISODate(value: unknown) {
   return new Date().toISOString()
 }
 
+function parseTimestamp(value?: string) {
+  if (!value) return 0
+  const time = Date.parse(value)
+  return Number.isNaN(time) ? 0 : time
+}
+
 export function subscribeToTransactions(userId: string, callback: FirestoreCallback<Transaction>): Unsubscribe {
   const q = query(collectionPath(userId, 'transactions'), orderBy('createdAt', 'desc'))
+  const arrivalTimes = new Map<string, number>()
   return onSnapshot(
     q,
     (snapshot) => {
-      const items: Transaction[] = snapshot.docs.map((snap) => {
+      const now = Date.now()
+      const initialLoad = arrivalTimes.size === 0
+      const seenIds = new Set<string>()
+
+      const items: Transaction[] = snapshot.docs.map((snap, index) => {
         const data = snap.data()
-      return {
-        id: snap.id,
-        amount: Number(data.amount) || 0,
-        category: String(data.category ?? 'General'),
-        type: (data.type === 'income' ? 'income' : 'expense') as Transaction['type'],
-        note: data.note ? String(data.note) : undefined,
-        source: data.source ? String(data.source) : undefined,
-        createdAt: toISODate(data.createdAt),
-        updatedAt: data.updatedAt ? toISODate(data.updatedAt) : undefined,
+        const createdAt = toISODate(data.createdAt)
+        const updatedAt = data.updatedAt ? toISODate(data.updatedAt) : undefined
+
+        if (!arrivalTimes.has(snap.id)) {
+          const offset = initialLoad ? -index : snapshot.docs.length - index
+          arrivalTimes.set(snap.id, now + offset)
+        }
+        const arrivalTime = arrivalTimes.get(snap.id) ?? now
+
+        const sortTimestamp = Math.max(parseTimestamp(createdAt), parseTimestamp(updatedAt), arrivalTime)
+
+        seenIds.add(snap.id)
+
+        return {
+          id: snap.id,
+          amount: Number(data.amount) || 0,
+          category: String(data.category ?? 'General'),
+          type: (data.type === 'income' ? 'income' : 'expense') as Transaction['type'],
+          note: data.note ? String(data.note) : undefined,
+          source: data.source ? String(data.source) : undefined,
+          createdAt,
+          updatedAt,
+          sortTimestamp,
+        }
+      })
+
+      if (!initialLoad) {
+        arrivalTimes.forEach((_, key) => {
+          if (!seenIds.has(key)) arrivalTimes.delete(key)
+        })
       }
-    })
       callback(items)
     },
     (error) => {

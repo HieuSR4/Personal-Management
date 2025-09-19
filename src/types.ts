@@ -9,6 +9,7 @@ export type Transaction = {
   source?: string
   createdAt: string
   updatedAt?: string
+  sortTimestamp?: number
 }
 
 export type MoneySource = {

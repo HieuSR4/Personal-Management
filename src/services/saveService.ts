@@ -1,6 +1,7 @@
 import { addDoc, collection, serverTimestamp } from 'firebase/firestore'
 import { db } from '../lib/firebase'
 import type { TransactionType } from '../types'
+import { combineDateWithCurrentTime } from '../utils/date.ts'
 
 type Collections = 'transactions' | 'tasks' | 'notes'
 
@@ -32,9 +33,7 @@ export async function saveTransaction(
   const source = input.source?.trim()
   if (source) payload.source = source
   if (input.date) {
-    // Save selected date as ISO string for consistent ordering
-    const iso = new Date(`${input.date}T00:00:00`).toISOString()
-    payload.createdAt = iso
+    payload.createdAt = combineDateWithCurrentTime(input.date)
   } else {
     payload.createdAt = serverTimestamp()
   }
