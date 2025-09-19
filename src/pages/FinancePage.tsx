@@ -66,6 +66,7 @@ export function FinancePage() {
   const [error, setError] = useState<string | null>(null)
   const [editingId, setEditingId] = useState<string | null>(null)
   const [showForm, setShowForm] = useState(false)
+  const [showTransferModal, setShowTransferModal] = useState(false)
   const [analysisModal, setAnalysisModal] = useState<null | 'trend' | 'compare' | 'top' | 'summary'>(null)
   const [sourceInputs, setSourceInputs] = useState<Record<string, string>>({})
   const [sourceSaving, setSourceSaving] = useState<Record<string, boolean>>({})
@@ -74,6 +75,10 @@ export function FinancePage() {
   const [usdtRateUpdatedAt, setUsdtRateUpdatedAt] = useState<string | null>(null)
   const [usdtRateLoading, setUsdtRateLoading] = useState(false)
   const [usdtRateError, setUsdtRateError] = useState<string | null>(null)
+  const [transferAmount, setTransferAmount] = useState('')
+  const [transferTarget, setTransferTarget] = useState('')
+  const [transferSaving, setTransferSaving] = useState(false)
+  const [transferError, setTransferError] = useState<string | null>(null)
   const isMountedRef = useRef(true)
 
   const fetchUsdtRate = useCallback(async () => {
@@ -120,6 +125,23 @@ export function FinancePage() {
     return subscribeToSources(user.uid, setSources)
   }, [user])
 
+  useEffect(() => {
+    const exists = transferTarget ? sources.some((source) => source.key === transferTarget) : false
+    if (transferTarget && !exists) {
+      setTransferTarget('')
+      return
+    }
+    if (!transferTarget) {
+      const preferred = sources.find((source) => source.key === 'Vietinbank')
+      if (preferred) {
+        setTransferTarget(preferred.key)
+        return
+      }
+      const fallback = sources.find((source) => source.key !== 'Binance')
+      if (fallback) setTransferTarget(fallback.key)
+    }
+  }, [sources, transferTarget])
+
   const summary = useMemo(() => {
     return transactions.reduce(
       (acc, transaction) => {
@@ -147,6 +169,14 @@ export function FinancePage() {
     })
     return sums
   }, [transactions, sources])
+
+  const selectedTransferTarget = useMemo(
+    () => sources.find((source) => source.key === transferTarget) ?? null,
+    [sources, transferTarget],
+  )
+  const selectedTransferTargetBalance = selectedTransferTarget
+    ? sourceBalances.get(selectedTransferTarget.key) ?? Number(selectedTransferTarget.initialBalance || 0)
+    : 0
 
   const sortedTransactions = useMemo(() => {
     const parseTime = (value?: string) => {
@@ -234,6 +264,71 @@ export function FinancePage() {
       setError('Không thể nạp tiền vào nguồn này.')
     } finally {
       setSourceSaving((prev) => ({ ...prev, [s.id]: false }))
+    }
+  }
+
+  const handleTransferFromBinance = async (event: FormEvent<HTMLFormElement>) => {
+    event.preventDefault()
+    if (!user) return
+    const binance = sources.find((source) => source.key === 'Binance')
+    if (!binance) {
+      setTransferError('Chưa có nguồn Binance để rút.')
+      return
+    }
+    if (!transferTarget) {
+      setTransferError('Bạn cần chọn ngân hàng/ví nhận tiền.')
+      return
+    }
+    const targetSource = selectedTransferTarget
+    if (!targetSource) {
+      setTransferError('Nguồn nhận không hợp lệ.')
+      return
+    }
+    const amount = toNumber(transferAmount)
+    if (amount <= 0) {
+      setTransferError('Bạn cần nhập số tiền muốn rút.')
+      return
+    }
+    const availableBalance = sourceBalances.get('Binance') ?? Number(binance.initialBalance || 0)
+    if (amount > availableBalance) {
+      setTransferError('Số dư Binance không đủ để rút số tiền này.')
+      return
+    }
+    if (!usdtVndRate) {
+      setTransferError('Chưa có tỷ giá USDT/VND. Vui lòng tải lại tỷ giá.')
+      if (!usdtRateLoading) fetchUsdtRate()
+      return
+    }
+
+    const usdtAmount = Number((amount / usdtVndRate).toFixed(5))
+    const today = new Date().toISOString().slice(0, 10)
+    setTransferSaving(true)
+    setTransferError(null)
+    try {
+      const withdrawNote = `Rút ${amount.toLocaleString('vi-VN')} VND (≈ ${formatUsdtAmount(usdtAmount)} USDT) về ${targetSource.name}`
+      const receiveNote = `Nhận ${amount.toLocaleString('vi-VN')} VND từ Binance (≈ ${formatUsdtAmount(usdtAmount)} USDT)`
+      await saveTransaction(user.uid, {
+        amount,
+        type: 'expense',
+        category: 'Rút tiền',
+        note: withdrawNote,
+        date: today,
+        source: 'Binance',
+      })
+      await saveTransaction(user.uid, {
+        amount,
+        type: 'income',
+        category: 'Nạp tiền',
+        note: receiveNote,
+        date: today,
+        source: targetSource.key,
+      })
+      setTransferAmount('')
+    } catch (error) {
+      console.error('Transfer from Binance failed', error)
+      setTransferError('Không thể thực hiện giao dịch rút tiền. Vui lòng thử lại.')
+    } finally {
+      setTransferSaving(false)
     }
   }
 
@@ -383,6 +478,17 @@ export function FinancePage() {
     setShowForm(false)
   }
 
+  const openTransferModal = () => {
+    setTransferError(null)
+    setShowTransferModal(true)
+    if ((!usdtVndRate || usdtRateError) && !usdtRateLoading) fetchUsdtRate()
+  }
+
+  const closeTransferModal = () => {
+    setShowTransferModal(false)
+    setTransferError(null)
+  }
+
   return (
     <section className="page finance-page">
       <div className="page-header">
@@ -403,21 +509,30 @@ export function FinancePage() {
           >
             +
           </button>
+          <button
+            type="button"
+            className="transfer-btn"
+            title="Rút tiền từ Binance"
+            aria-label="Rút tiền từ Binance"
+            onClick={openTransferModal}
+          >
+            ⇄
+          </button>
           <div className="finance-summary">
-          <div>
-            <span>Thu</span>
-            <strong>{summary.income.toLocaleString('vi-VN')} VND</strong>
-          </div>
-          <div>
-            <span>Chi</span>
-            <strong>{summary.expense.toLocaleString('vi-VN')} VND</strong>
-          </div>
-          <div>
-            <span>Số dư</span>
-            <strong className={balance >= 0 ? 'positive' : 'negative'}>
-              {balance.toLocaleString('vi-VN')} VND
-            </strong>
-          </div>
+            <div>
+              <span>Thu</span>
+              <strong>{summary.income.toLocaleString('vi-VN')} VND</strong>
+            </div>
+            <div>
+              <span>Chi</span>
+              <strong>{summary.expense.toLocaleString('vi-VN')} VND</strong>
+            </div>
+            <div>
+              <span>Số dư</span>
+              <strong className={balance >= 0 ? 'positive' : 'negative'}>
+                {balance.toLocaleString('vi-VN')} VND
+              </strong>
+            </div>
           </div>
         </div>
       </div>
@@ -584,6 +699,143 @@ export function FinancePage() {
           </ul>
         )}
       </div>
+
+      {showTransferModal && (
+        <div className="modal-overlay" onClick={closeTransferModal}>
+          <div className="modal" onClick={(event) => event.stopPropagation()}>
+            <div className="transfer-card">
+              <h3>Rút tiền từ Binance về ngân hàng</h3>
+              {transferError && <p className="form-error">{transferError}</p>}
+              {!sources.some((source) => source.key === 'Binance') ? (
+                <p>Chưa có nguồn Binance. Vui lòng thêm Binance trong danh sách nguồn tiền.</p>
+              ) : sources.filter((source) => source.key !== 'Binance').length === 0 ? (
+                <p>Chưa có ngân hàng/ví đích để nhận tiền. Hãy thêm Vietinbank hoặc nguồn khác.</p>
+              ) : (
+                <form className="transfer-form" onSubmit={handleTransferFromBinance}>
+                  <div className="transfer-sources">
+                    <div className="transfer-source">
+                      <div className="transfer-source-header">
+                        <div className="transfer-source-logo">
+                          <img src={LOGOS.Binance} alt="Binance" title="Binance" />
+                        </div>
+                        <div className="transfer-source-info">
+                          <strong>Ví Binance</strong>
+                          <span>Số dư hiện tại</span>
+                          <span className="transfer-balance">
+                            {(sourceBalances.get('Binance') ?? 0).toLocaleString('vi-VN', { maximumFractionDigits: 5 })} VND
+                          </span>
+                          {usdtVndRate && (
+                            <span className="transfer-hint">
+                              ≈ {((sourceBalances.get('Binance') ?? 0) / usdtVndRate).toLocaleString('en-US', {
+                                minimumFractionDigits: 0,
+                                maximumFractionDigits: 5,
+                              })}{' '}
+                              USDT
+                            </span>
+                          )}
+                        </div>
+                      </div>
+                    </div>
+                    <div className="transfer-arrow" aria-hidden>
+                      →
+                    </div>
+                    <div className="transfer-source">
+                      <div className="transfer-source-header">
+                        <div className="transfer-source-logo">
+                          {selectedTransferTarget ? (
+                            (() => {
+                              const key = selectedTransferTarget.key as keyof typeof LOGOS
+                              const logoSrc = LOGOS[key]
+                              if (!logoSrc)
+                                return (
+                                  <span className="transfer-logo-placeholder">
+                                    {selectedTransferTarget.name.slice(0, 2).toUpperCase()}
+                                  </span>
+                                )
+                              return (
+                                <img src={logoSrc} alt={selectedTransferTarget.name} title={selectedTransferTarget.name} />
+                              )
+                            })()
+                          ) : (
+                            <span className="transfer-logo-placeholder">NH</span>
+                          )}
+                        </div>
+                        <div className="transfer-source-info">
+                          <label className="transfer-label">
+                            Chọn ngân hàng nhận
+                            <select value={transferTarget} onChange={(event) => setTransferTarget(event.target.value)}>
+                              <option value="">-- Chọn --</option>
+                              {sources
+                                .filter((source) => source.key !== 'Binance')
+                                .map((source) => (
+                                  <option key={source.id} value={source.key}>
+                                    {source.name}
+                                  </option>
+                                ))}
+                            </select>
+                          </label>
+                          {selectedTransferTarget && (
+                            <span className="transfer-balance">
+                              Số dư: {selectedTransferTargetBalance.toLocaleString('vi-VN')} VND
+                            </span>
+                          )}
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+                  <div className="transfer-inputs">
+                    <label>
+                      Số tiền muốn rút (VND)
+                      <input
+                        type="text"
+                        inputMode="numeric"
+                        placeholder="0"
+                        value={transferAmount}
+                        onChange={(event) => setTransferAmount(formatAmount(event.target.value))}
+                      />
+                    </label>
+                  </div>
+                  <div className="transfer-summary">
+                    {usdtVndRate ? (
+                      <span>
+                        1 USDT ≈ {usdtVndRate.toLocaleString('vi-VN', { maximumFractionDigits: 0 })} VND
+                        {transferAmount && (
+                          <>
+                            {' '}| Tương đương ≈
+                            <strong>
+                              {' '}
+                              {(toNumber(transferAmount) / usdtVndRate).toLocaleString('en-US', {
+                                minimumFractionDigits: 0,
+                                maximumFractionDigits: 5,
+                              })}{' '}
+                              USDT
+                            </strong>
+                          </>
+                        )}
+                      </span>
+                    ) : (
+                      <span>
+                        Chưa có tỷ giá USDT/VND.
+                        <button type="button" className="link-button" onClick={fetchUsdtRate} disabled={usdtRateLoading}>
+                          {usdtRateLoading ? 'Đang cập nhật...' : 'Làm mới'}
+                        </button>
+                      </span>
+                    )}
+                  </div>
+                  <div className="form-actions">
+                    <button type="submit" disabled={transferSaving}>
+                      {transferSaving ? 'Đang xử lý...' : 'Rút về ngân hàng'}
+                    </button>
+                    <button type="button" onClick={closeTransferModal} disabled={transferSaving}>
+                      Đóng
+                    </button>
+                  </div>
+                </form>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* Charts */}
       <div className="card charts-grid">
