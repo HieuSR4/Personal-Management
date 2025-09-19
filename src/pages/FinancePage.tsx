@@ -6,6 +6,7 @@ import type { Transaction, TransactionType, MoneySource } from '../types'
 import { useAuth } from '../contexts/AuthContext'
 import { DonutChart } from '../components/DonutChart'
 import { BarChart } from '../components/BarChart'
+import { TrendAnalysisModal } from '../components/TrendAnalysisModal'
 import { combineDateWithCurrentTime } from '../utils/date.ts'
 
 const LOGOS = {
@@ -908,18 +909,21 @@ export function FinancePage() {
       {analysisModal && (
         <div className="modal-overlay" onClick={() => setAnalysisModal(null)}>
           <div className="modal" onClick={(e) => e.stopPropagation()}>
-            <div className="form" style={{ gap: 16 }}>
-              <h3>
-                {analysisModal === 'trend' && 'Biểu đồ xu hướng chi tiêu'}
-                {analysisModal === 'compare' && 'So sánh chi tiêu'}
-                {analysisModal === 'top' && 'Top danh mục chi tiêu'}
-                {analysisModal === 'summary' && 'Báo cáo tổng quan định kỳ'}
-              </h3>
-              <p style={{ margin: 0, color: '#94a3b8' }}>Nội dung sẽ được bổ sung chi tiết theo chức năng. Hiện tại là cửa sổ minh họa.</p>
-              <div className="form-actions">
-                <button type="button" onClick={() => setAnalysisModal(null)}>Đóng</button>
+                {analysisModal === 'trend' ? (
+              <TrendAnalysisModal transactions={transactions} onClose={() => setAnalysisModal(null)} />
+            ) : (
+              <div className="form" style={{ gap: 16 }}>
+                <h3>
+                  {analysisModal === 'compare' && 'So sánh chi tiêu'}
+                  {analysisModal === 'top' && 'Top danh mục chi tiêu'}
+                  {analysisModal === 'summary' && 'Báo cáo tổng quan định kỳ'}
+                </h3>
+                <p style={{ margin: 0, color: '#94a3b8' }}>Nội dung sẽ được bổ sung chi tiết theo chức năng. Hiện tại là cửa sổ minh họa.</p>
+                <div className="form-actions">
+                  <button type="button" onClick={() => setAnalysisModal(null)}>Đóng</button>
+                </div>
               </div>
-            </div>
+              )}
           </div>
         </div>
       )}

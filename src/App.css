@@ -730,6 +730,166 @@ textarea {
   border-color: #475569;
 }
 
+/* Trend analysis modal */
+.trend-analysis {
+  display: flex;
+  flex-direction: column;
+  gap: 24px;
+}
+
+.trend-analysis__header {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 18px;
+}
+
+.trend-analysis__header h3 {
+  margin: 0;
+}
+
+.trend-analysis__header p {
+  margin: 6px 0 0;
+  color: #cbd5e1;
+  max-width: 520px;
+}
+
+.trend-analysis__meta {
+  margin-top: 12px;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px;
+  color: #94a3b8;
+  font-size: 0.9rem;
+}
+
+.trend-analysis__filters {
+  display: flex;
+  gap: 18px;
+  align-items: center;
+  flex-wrap: wrap;
+}
+
+.trend-analysis__filters label {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  color: #cbd5e1;
+  font-size: 0.9rem;
+  font-weight: 600;
+}
+
+.trend-analysis__filters select {
+  min-width: 200px;
+}
+
+.trend-analysis__chart {
+  background: rgba(15, 23, 42, 0.55);
+  border: 1px solid rgba(148, 163, 184, 0.2);
+  border-radius: 20px;
+  padding: 16px 20px 24px;
+}
+
+.trend-analysis__chart .trend-chart {
+  width: 100%;
+  height: auto;
+  display: block;
+  overflow: visible;
+}
+
+.trend-analysis__summary {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+  gap: 16px;
+}
+
+.trend-summary-card {
+  background: rgba(15, 23, 42, 0.65);
+  border: 1px solid rgba(148, 163, 184, 0.18);
+  border-radius: 16px;
+  padding: 16px 20px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.trend-summary-card__label {
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: #94a3b8;
+  font-size: 0.75rem;
+  font-weight: 700;
+}
+
+.trend-summary-card strong {
+  color: #f8fafc;
+  font-size: 1.35rem;
+}
+
+.trend-summary-card span {
+  color: #94a3b8;
+  line-height: 1.45;
+}
+
+.trend-positive {
+  color: #4ade80;
+}
+
+.trend-negative {
+  color: #f87171;
+}
+
+.trend-analysis__insights {
+  background: rgba(15, 23, 42, 0.58);
+  border: 1px solid rgba(148, 163, 184, 0.16);
+  border-radius: 16px;
+  padding: 18px 22px;
+}
+
+.trend-analysis__insights h4 {
+  margin: 0 0 12px;
+  color: #e2e8f0;
+}
+
+.trend-analysis__insights ul {
+  margin: 0;
+  padding-left: 20px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  color: #cbd5e1;
+}
+
+.trend-analysis__insights li {
+  line-height: 1.5;
+}
+
+.trend-analysis__empty {
+  background: rgba(15, 23, 42, 0.55);
+  border: 1px dashed rgba(148, 163, 184, 0.28);
+  border-radius: 16px;
+  padding: 24px;
+  text-align: center;
+  color: #cbd5e1;
+  line-height: 1.6;
+}
+
+@media (max-width: 640px) {
+  .trend-analysis__header {
+    flex-direction: column;
+  }
+
+  .trend-analysis__filters {
+    width: 100%;
+  }
+
+  .trend-analysis__filters label,
+  .trend-analysis__filters select {
+    width: 100%;
+  }
+}
+
 /* ---- Finance sources ---- */
 .list-sources .source-actions {
   text-align: right;
