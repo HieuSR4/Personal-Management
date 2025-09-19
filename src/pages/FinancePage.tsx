@@ -1,5 +1,5 @@
 import type { FormEvent } from 'react'
-import { useEffect, useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { deleteTransaction, subscribeToTransactions, updateTransaction, subscribeToSources, addSource } from '../services/dataService'
 import { saveTransaction } from '../services/saveService'
 import type { Transaction, TransactionType, MoneySource } from '../types'
@@ -70,6 +70,45 @@ export function FinancePage() {
   const [sourceInputs, setSourceInputs] = useState<Record<string, string>>({})
   const [sourceSaving, setSourceSaving] = useState<Record<string, boolean>>({})
   const [sourceExpanded, setSourceExpanded] = useState<Record<string, boolean>>({})
+  const [usdtVndRate, setUsdtVndRate] = useState<number | null>(null)
+  const [usdtRateUpdatedAt, setUsdtRateUpdatedAt] = useState<string | null>(null)
+  const [usdtRateLoading, setUsdtRateLoading] = useState(false)
+  const [usdtRateError, setUsdtRateError] = useState<string | null>(null)
+  const isMountedRef = useRef(true)
+
+  const fetchUsdtRate = useCallback(async () => {
+    try {
+      if (!isMountedRef.current) return
+      setUsdtRateLoading(true)
+      setUsdtRateError(null)
+      const response = await fetch(
+        'https://api.coingecko.com/api/v3/simple/price?ids=tether&vs_currencies=vnd',
+      )
+      if (!response.ok) throw new Error(`HTTP ${response.status}`)
+      const data = (await response.json()) as { tether?: { vnd?: number } }
+      const rate = data?.tether?.vnd
+      if (typeof rate !== 'number' || Number.isNaN(rate)) throw new Error('Missing USDT/VND rate')
+      if (!isMountedRef.current) return
+      setUsdtVndRate(rate)
+      setUsdtRateUpdatedAt(new Date().toISOString())
+    } catch (err) {
+      console.error('Failed to fetch USDT/VND rate', err)
+      if (!isMountedRef.current) return
+      setUsdtRateError('Không thể lấy tỷ giá USDT/VND. Vui lòng thử lại sau.')
+    } finally {
+      if (isMountedRef.current) setUsdtRateLoading(false)
+    }
+  }, [])
+
+  useEffect(() => {
+    isMountedRef.current = true
+    fetchUsdtRate()
+    const interval = typeof window !== 'undefined' ? window.setInterval(fetchUsdtRate, 60 * 60 * 1000) : undefined
+    return () => {
+      isMountedRef.current = false
+      if (interval) window.clearInterval(interval)
+    }
+  }, [fetchUsdtRate])
 
   useEffect(() => {
     if (!user) return
@@ -150,19 +189,41 @@ export function FinancePage() {
   const handleDepositToSource = async (s: MoneySource) => {
     if (!user) return
     const raw = sourceInputs[s.id] || ''
-    const amount = toNumber(raw)
-    if (amount <= 0) {
-      setError('So tien nap vao phai lon hon 0')
-      return
+    const isBinance = s.key === 'Binance'
+    let amount = 0
+    let usdtAmount = 0
+
+    if (isBinance) {
+      usdtAmount = parseUsdtAmount(raw)
+      if (usdtAmount <= 0) {
+        setError('Số USDT nạp vào phải lớn hơn 0')
+        return
+      }
+      if (!usdtVndRate) {
+        setUsdtRateError('Chưa có tỷ giá USDT/VND. Vui lòng thử lại sau.')
+        if (!usdtRateLoading) fetchUsdtRate()
+        return
+      }
+      amount = Number((usdtAmount * usdtVndRate).toFixed(5))
+    } else {
+      amount = toNumber(raw)
+      if (amount <= 0) {
+        setError('Số tiền nạp vào phải lớn hơn 0')
+        return
+      }
     }
+
     setError(null)
+    setUsdtRateError(null)
     setSourceSaving((prev) => ({ ...prev, [s.id]: true }))
     try {
       await saveTransaction(user.uid, {
         amount,
         type: 'income',
         category: 'Nạp tiền',
-        note: `Nạp vào ${s.name}`,
+        note: isBinance
+          ? `Nạp ${formatUsdtAmount(usdtAmount)} USDT vào ${s.name}${usdtVndRate ? ` (tỷ giá ${usdtVndRate.toLocaleString('vi-VN', { maximumFractionDigits: 0 })} VND)` : ''}`
+          : `Nạp vào ${s.name}`,
         source: s.key,
         date: new Date().toISOString().slice(0, 10),
       })
@@ -183,6 +244,49 @@ export function FinancePage() {
     return Number(d).toLocaleString('vi-VN')
   }
   const toNumber = (s: string) => Number(digitsOnly(String(s)) || 0)
+
+  const sanitizeUsdtInput = (value: string) => {
+    const filtered = value.replace(/[^0-9.,]/g, '')
+    let integerPart = ''
+    let decimalPart = ''
+    let hasDecimal = false
+    for (const char of filtered) {
+      if (char === '.' || char === ',') {
+        hasDecimal = true
+        continue
+      }
+      if (!hasDecimal) {
+        integerPart += char
+      } else if (decimalPart.length < 5) {
+        decimalPart += char
+      }
+    }
+    if (!integerPart && (hasDecimal || decimalPart)) integerPart = '0'
+    if (hasDecimal) {
+      if (!decimalPart) return `${integerPart || '0'}.`
+      return `${integerPart || '0'}.${decimalPart}`
+    }
+    return integerPart
+  }
+
+  const normalizeUsdtInput = (value: string) => {
+    const sanitized = sanitizeUsdtInput(value)
+    if (!sanitized) return ''
+    if (sanitized.endsWith('.')) return sanitized.slice(0, -1)
+    return sanitized
+  }
+
+  const parseUsdtAmount = (value: string) => {
+    const normalized = normalizeUsdtInput(value)
+    if (!normalized) return 0
+    const parsed = Number(normalized)
+    return Number.isFinite(parsed) ? parsed : 0
+  }
+
+  const formatUsdtAmount = (value: number) => {
+    if (!Number.isFinite(value)) return '0'
+    return value.toLocaleString('en-US', { minimumFractionDigits: 0, maximumFractionDigits: 5 })
+  }
 
   const formatSource = (s?: string) => {
     if (!s) return ''
@@ -357,6 +461,17 @@ export function FinancePage() {
               const bal = sourceBalances.get(s.key) ?? (s.initialBalance || 0)
               const key = s.key as keyof typeof LOGOS
               const logo = LOGOS[key]
+              const isBinance = s.key === 'Binance'
+              const rawInput = sourceInputs[s.id] ?? ''
+              const usdtInputAmount = isBinance ? parseUsdtAmount(rawInput) : 0
+              const convertedPreview =
+                isBinance && usdtVndRate
+                  ? Number((usdtInputAmount * usdtVndRate).toFixed(5))
+                  : 0
+              const formattedBalance = isBinance
+                ? bal.toLocaleString('vi-VN', { maximumFractionDigits: 5 })
+                : bal.toLocaleString('vi-VN')
+              const disableDeposit = !!sourceSaving[s.id] || (isBinance && !usdtVndRate)
               return (
                 <li key={s.id} style={{ border: '1px solid #e2e8f0', borderRadius: 12, padding: 12, display: 'grid', gridTemplateColumns: '1fr auto', gap: 12, alignItems: 'center' }}>
                   <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
@@ -375,7 +490,16 @@ export function FinancePage() {
                   <div className="source-actions">
                     <div>
                       <span style={{ display: 'block', fontSize: '0.85rem', color: '#64748b' }}>Số dư</span>
-                      <strong className={bal >= 0 ? 'positive' : 'negative'}>{bal.toLocaleString('vi-VN')} VND</strong>
+                      <strong className={bal >= 0 ? 'positive' : 'negative'}>{formattedBalance} VND</strong>
+                      {isBinance && (
+                        <span className="source-balance-hint">
+                          {usdtVndRate
+                            ? `Tỷ giá 1 USDT ≈ ${usdtVndRate.toLocaleString('vi-VN', { maximumFractionDigits: 0 })} VND`
+                            : usdtRateLoading
+                              ? 'Đang tải tỷ giá USDT/VND...'
+                              : 'Chưa có tỷ giá USDT/VND'}
+                        </span>
+                      )}
                     </div>
                     <button
                       type="button"
@@ -393,18 +517,65 @@ export function FinancePage() {
                       className="source-deposit-form"
                     >
                     <input
-                      type="text"
-                      inputMode="numeric"
-                      autoFocus
-                      placeholder="Số tiền nạp"
-                      value={sourceInputs[s.id] ?? ''}
-                      onChange={(e) => setSourceInputs((prev) => ({ ...prev, [s.id]: (e.target.value || '').replace(/[^\d.,\s]/g, '') }))}
-                      onBlur={(e) => setSourceInputs((prev) => ({ ...prev, [s.id]: (e.target.value ? (Number((e.target.value || '').replace(/\D/g, '')) || 0).toLocaleString('vi-VN') : '') }))}
-                      style={{ maxWidth: 180 }}
-                    />
-                    <button type="submit" disabled={!!sourceSaving[s.id]}>
-                      {sourceSaving[s.id] ? 'Đang nạp...' : 'Nạp' }
-                    </button>
+                        type="text"
+                        inputMode="decimal"
+                        autoFocus
+                        className="source-deposit-input"
+                        placeholder={isBinance ? 'Số USDT nạp' : 'Số tiền nạp'}
+                        value={sourceInputs[s.id] ?? ''}
+                        onChange={(e) =>
+                          setSourceInputs((prev) => ({
+                            ...prev,
+                            [s.id]: isBinance
+                              ? sanitizeUsdtInput(e.target.value || '')
+                              : (e.target.value || '').replace(/[^\d.,\s]/g, ''),
+                          }))
+                        }
+                        onBlur={(e) =>
+                          setSourceInputs((prev) => ({
+                            ...prev,
+                            [s.id]: isBinance
+                              ? normalizeUsdtInput(e.target.value || '')
+                              : formatAmount(e.target.value || ''),
+                          }))
+                        }
+                      />
+                      <button type="submit" disabled={disableDeposit}>
+                        {sourceSaving[s.id] ? 'Đang nạp...' : 'Nạp'}
+                      </button>
+                      {isBinance && (
+                        <div className="source-deposit-meta">
+                          <div className="source-rate-row">
+                            <span>Tỷ giá:</span>
+                            <strong>
+                              {usdtVndRate
+                                ? `1 USDT ≈ ${usdtVndRate.toLocaleString('vi-VN', { maximumFractionDigits: 0 })} VND`
+                                : usdtRateLoading
+                                  ? 'Đang tải...'
+                                  : 'Chưa có dữ liệu'}
+                            </strong>
+                            <button
+                              type="button"
+                              className="link-button"
+                              onClick={fetchUsdtRate}
+                              disabled={usdtRateLoading}
+                            >
+                              {usdtRateLoading ? 'Đang cập nhật...' : 'Làm mới'}
+                            </button>
+                          </div>
+                          {usdtRateUpdatedAt && (
+                            <span className="source-rate-updated">
+                              Cập nhật: {new Date(usdtRateUpdatedAt).toLocaleString('vi-VN')}
+                            </span>
+                          )}
+                          {usdtRateError && <span className="source-rate-error">{usdtRateError}</span>}
+                          {convertedPreview > 0 && (
+                            <span className="source-rate-preview">
+                              ≈ <strong>{convertedPreview.toLocaleString('vi-VN', { maximumFractionDigits: 5 })} VND</strong>
+                            </span>
+                          )}
+                        </div>
+                      )}
                     </form>
                   )}
                 </li>
