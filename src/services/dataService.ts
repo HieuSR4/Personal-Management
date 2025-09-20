@@ -10,7 +10,7 @@
   updateDoc,
 } from 'firebase/firestore'
 import { db } from '../lib/firebase'
-import type { Note, Task, Transaction, MoneySource } from '../types'
+import type { Note, Task, Transaction, MoneySource, Budget } from '../types'
 
 type Unsubscribe = () => void
 
@@ -18,7 +18,10 @@ type FirestoreItem = { id: string; [key: string]: unknown }
 
 type FirestoreCallback<T extends FirestoreItem> = (items: T[]) => void
 
-function collectionPath(userId: string, key: 'transactions' | 'tasks' | 'notes' | 'sources') {
+function collectionPath(
+  userId: string,
+  key: 'transactions' | 'tasks' | 'notes' | 'sources' | 'budgets',
+) {
   if (!db) throw new Error('Firebase is not initialized')
   return collection(db, 'users', userId, key)
 }
@@ -113,6 +116,31 @@ export function subscribeToSources(userId: string, callback: FirestoreCallback<M
     (error) => {
       const anyErr = error as { code?: string; message?: string }
       console.warn('subscribeToSources error:', anyErr?.code, anyErr?.message)
+    },
+  )
+}
+
+export function subscribeToBudgets(userId: string, callback: FirestoreCallback<Budget>): Unsubscribe {
+  const q = query(collectionPath(userId, 'budgets'), orderBy('month', 'desc'))
+  return onSnapshot(
+    q,
+    (snapshot) => {
+      const items: Budget[] = snapshot.docs.map((snap) => {
+        const data = snap.data()
+        return {
+          id: snap.id,
+          category: String(data.category ?? 'Không phân loại'),
+          month: String(data.month ?? ''),
+          limitAmount: Number(data.limitAmount) || 0,
+          createdAt: toISODate(data.createdAt),
+          updatedAt: data.updatedAt ? toISODate(data.updatedAt) : undefined,
+        }
+      })
+      callback(items)
+    },
+    (error) => {
+      const anyErr = error as { code?: string; message?: string }
+      console.warn('subscribeToBudgets error:', anyErr?.code, anyErr?.message)
     },
   )
 }
@@ -216,6 +244,39 @@ export function updateSource(
 
 export function deleteSource(userId: string, id: string) {
   return deleteDoc(doc(collectionPath(userId, 'sources'), id))
+}
+
+export async function saveBudget(
+  userId: string,
+  budget: { id?: string; category: string; month: string; limitAmount: number },
+) {
+  const category = (budget.category || '').trim() || 'Không phân loại'
+  const month = (budget.month || '').trim()
+  const limitAmount = Number(budget.limitAmount) || 0
+
+  const payload = {
+    category,
+    month,
+    limitAmount,
+  }
+
+  if (budget.id) {
+    await updateDoc(doc(collectionPath(userId, 'budgets'), budget.id), {
+      ...payload,
+      updatedAt: serverTimestamp(),
+    })
+    return budget.id
+  }
+
+  const ref = await addDoc(collectionPath(userId, 'budgets'), {
+    ...payload,
+    createdAt: serverTimestamp(),
+  })
+  return ref.id
+}
+
+export function deleteBudget(userId: string, id: string) {
+  return deleteDoc(doc(collectionPath(userId, 'budgets'), id))
 }
 
 export function addTask(userId: string, task: Omit<Task, 'id' | 'createdAt' | 'updatedAt'>) {

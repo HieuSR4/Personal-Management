@@ -36,3 +36,12 @@ export type Note = {
   content: string
   updatedAt: string
 }
+
+export type Budget = {
+  id: string
+  category: string
+  month: string
+  limitAmount: number
+  createdAt: string
+  updatedAt?: string
+}

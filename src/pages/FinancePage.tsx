@@ -1,8 +1,17 @@
 import type { FormEvent } from 'react'
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
-import { deleteTransaction, subscribeToTransactions, updateTransaction, subscribeToSources, addSource } from '../services/dataService'
-import { saveTransaction } from '../services/saveService'
-import type { Transaction, TransactionType, MoneySource } from '../types'
+import {
+  addSource,
+  deleteBudget,
+  deleteTransaction,
+  saveBudget,
+  subscribeToBudgets,
+  subscribeToSources,
+  subscribeToTransactions,
+  updateTransaction,
+} from '../services/dataService'
+import { saveTask, saveTransaction } from '../services/saveService'
+import type { Budget, MoneySource, Transaction, TransactionType } from '../types'
 import { useAuth } from '../contexts/AuthContext'
 import { DonutChart } from '../components/DonutChart'
 import { BarChart } from '../components/BarChart'
@@ -49,6 +58,60 @@ function colorForCategory(label: string) {
   return palette[hash % palette.length]
 }
 
+const monthLabelFormatter = new Intl.DateTimeFormat('vi-VN', { month: 'long', year: 'numeric' })
+
+type BudgetFormState = {
+  id: string | null
+  category: string
+  month: string
+  limitAmount: string
+}
+
+type BudgetProgress = Budget & {
+  spent: number
+  percent: number
+  status: 'ok' | 'warning' | 'danger' | 'no-limit'
+  remaining: number
+  overspent: number
+}
+
+function normalizeCategoryName(value: string | undefined) {
+  const normalized = (value ?? '').trim()
+  return normalized || 'Không phân loại'
+}
+
+function toMonthKey(date: Date) {
+  if (Number.isNaN(date.getTime())) return ''
+  const year = date.getFullYear()
+  const month = date.getMonth() + 1
+  return `${year}-${String(month).padStart(2, '0')}`
+}
+
+function formatBudgetMonthLabel(month: string) {
+  if (!month) return 'Không xác định'
+  const [yearStr, monthStr] = month.split('-')
+  const year = Number(yearStr)
+  const monthIndex = Number(monthStr) - 1
+  if (!Number.isFinite(year) || Number.isNaN(monthIndex) || monthIndex < 0) return month
+  const date = new Date(year, monthIndex)
+  if (Number.isNaN(date.getTime())) return month
+  return monthLabelFormatter.format(date)
+}
+
+function getDefaultBudgetMonth() {
+  return toMonthKey(new Date())
+}
+
+function getBudgetTaskDueDate(month: string) {
+  const [yearStr, monthStr] = month.split('-')
+  const year = Number(yearStr)
+  const monthIndex = Number(monthStr) - 1
+  if (!Number.isFinite(year) || Number.isNaN(monthIndex) || monthIndex < 0) return undefined
+  const lastDay = new Date(year, monthIndex + 1, 0)
+  if (Number.isNaN(lastDay.getTime())) return undefined
+  return lastDay.toISOString().slice(0, 10)
+}
+
 const defaultFormState = {
   type: 'expense' as TransactionType,
   amount: '',
@@ -62,6 +125,20 @@ export function FinancePage() {
   const { user } = useAuth()
   const [transactions, setTransactions] = useState<Transaction[]>([])
   const [sources, setSources] = useState<MoneySource[]>([])
+  const [budgets, setBudgets] = useState<Budget[]>([])
+  const [budgetModalOpen, setBudgetModalOpen] = useState(false)
+  const [budgetFormState, setBudgetFormState] = useState<BudgetFormState>(() => ({
+    id: null,
+    category: '',
+    month: getDefaultBudgetMonth(),
+    limitAmount: '',
+  }))
+  const [budgetFormError, setBudgetFormError] = useState<string | null>(null)
+  const [budgetSaving, setBudgetSaving] = useState(false)
+  const [budgetDeletingId, setBudgetDeletingId] = useState<string | null>(null)
+  const [dismissedBudgetAlerts, setDismissedBudgetAlerts] = useState<Record<string, boolean>>({})
+  const [budgetTaskError, setBudgetTaskError] = useState<Record<string, string | null>>({})
+  const [creatingTaskForBudget, setCreatingTaskForBudget] = useState<string | null>(null)
   const [formState, setFormState] = useState(defaultFormState)
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState<string | null>(null)
@@ -127,6 +204,11 @@ export function FinancePage() {
   }, [user])
 
   useEffect(() => {
+    if (!user) return
+    return subscribeToBudgets(user.uid, setBudgets)
+  }, [user])
+
+  useEffect(() => {
     const exists = transferTarget ? sources.some((source) => source.key === transferTarget) : false
     if (transferTarget && !exists) {
       setTransferTarget('')
@@ -162,7 +244,7 @@ export function FinancePage() {
     const sums = new Map<string, number>()
     sources.forEach((s) => sums.set(s.key, Number(s.initialBalance || 0)))
     transactions.forEach((t) => {
-      const key = (t as any).source as string | undefined
+      const key = t.source
       if (!key) return
       const curr = sums.get(key) ?? 0
       const delta = t.type === 'income' ? t.amount : -t.amount
@@ -216,6 +298,107 @@ export function FinancePage() {
         return (originalOrder.get(a.id) ?? 0) - (originalOrder.get(b.id) ?? 0)
       })
   }, [transactions])
+
+  const expensesByCategoryMonth = useMemo(() => {
+    const totals = new Map<string, number>()
+    transactions.forEach((transaction) => {
+      if (transaction.type !== 'expense') return
+      const date = new Date(transaction.createdAt)
+      const monthKey = toMonthKey(date)
+      if (!monthKey) return
+      const category = normalizeCategoryName(transaction.category)
+      const key = `${monthKey}|${category}`
+      totals.set(key, (totals.get(key) ?? 0) + transaction.amount)
+    })
+    return totals
+  }, [transactions])
+
+  const budgetsWithSpending = useMemo<BudgetProgress[]>(() => {
+    return budgets
+      .map((budget) => {
+        const category = normalizeCategoryName(budget.category)
+        const month = (budget.month || '').trim()
+        const key = `${month}|${category}`
+        const spent = expensesByCategoryMonth.get(key) ?? 0
+        const limitAmount = Number(budget.limitAmount) || 0
+        const hasLimit = limitAmount > 0
+        const percent = hasLimit && limitAmount > 0 ? (spent / limitAmount) * 100 : 0
+        let status: BudgetProgress['status'] = 'no-limit'
+        if (hasLimit) {
+          if (spent >= limitAmount) status = 'danger'
+          else if (spent >= limitAmount * 0.8) status = 'warning'
+          else status = 'ok'
+        }
+        const remaining = hasLimit ? Math.max(limitAmount - spent, 0) : 0
+        const overspent = hasLimit ? Math.max(spent - limitAmount, 0) : 0
+        return {
+          ...budget,
+          category,
+          month,
+          limitAmount,
+          spent,
+          percent: hasLimit ? percent : 0,
+          status,
+          remaining,
+          overspent,
+        }
+      })
+      .sort((a, b) => {
+        if (a.month !== b.month) return b.month.localeCompare(a.month)
+        return a.category.localeCompare(b.category, 'vi', { sensitivity: 'base' })
+      })
+  }, [budgets, expensesByCategoryMonth])
+
+  const overspentBudgets = useMemo(
+    () => budgetsWithSpending.filter((budget) => budget.status === 'danger'),
+    [budgetsWithSpending],
+  )
+
+  const activeBudgetAlerts = useMemo(
+    () => overspentBudgets.filter((budget) => !dismissedBudgetAlerts[budget.id]),
+    [overspentBudgets, dismissedBudgetAlerts],
+  )
+
+  const expenseCategoryNames = useMemo(() => {
+    const names = new Set<string>()
+    EXPENSE_CATEGORIES.forEach((category) => names.add(category.label))
+    transactions.forEach((transaction) => {
+      if (transaction.type === 'expense' && transaction.category) {
+        names.add(normalizeCategoryName(transaction.category))
+      }
+    })
+    budgets.forEach((budget) => {
+      if (budget.category) names.add(normalizeCategoryName(budget.category))
+    })
+    return Array.from(names).sort((a, b) => a.localeCompare(b, 'vi', { sensitivity: 'base' }))
+  }, [budgets, transactions])
+
+  useEffect(() => {
+    setDismissedBudgetAlerts((prev) => {
+      let changed = false
+      const next = { ...prev }
+      budgetsWithSpending.forEach((budget) => {
+        if (budget.status === 'danger') return
+        if (next[budget.id]) {
+          delete next[budget.id]
+          changed = true
+        }
+      })
+      return changed ? next : prev
+    })
+    setBudgetTaskError((prev) => {
+      let changed = false
+      const next = { ...prev }
+      budgetsWithSpending.forEach((budget) => {
+        if (budget.status === 'danger') return
+        if (next[budget.id]) {
+          delete next[budget.id]
+          changed = true
+        }
+      })
+      return changed ? next : prev
+    })
+  }, [budgetsWithSpending])
 
   const handleDepositToSource = async (s: MoneySource) => {
     if (!user) return
@@ -392,6 +575,162 @@ export function FinancePage() {
     return s
   }
 
+  const openBudgetModal = (budget?: BudgetProgress) => {
+    if (budget) {
+      setBudgetFormState({
+        id: budget.id,
+        category: budget.category,
+        month: budget.month || getDefaultBudgetMonth(),
+        limitAmount:
+          budget.limitAmount > 0 ? budget.limitAmount.toLocaleString('vi-VN') : '',
+      })
+    } else {
+      setBudgetFormState({
+        id: null,
+        category: '',
+        month: getDefaultBudgetMonth(),
+        limitAmount: '',
+      })
+    }
+    setBudgetFormError(null)
+    setBudgetModalOpen(true)
+  }
+
+  const closeBudgetModal = () => {
+    setBudgetModalOpen(false)
+    setBudgetFormError(null)
+    setBudgetFormState((prev) => ({
+      id: null,
+      category: '',
+      month: prev.month || getDefaultBudgetMonth(),
+      limitAmount: '',
+    }))
+  }
+
+  const handleBudgetFormSubmit = async (event: FormEvent<HTMLFormElement>) => {
+    event.preventDefault()
+    if (!user) return
+
+    const categoryInput = budgetFormState.category.trim()
+    if (!categoryInput) {
+      setBudgetFormError('Bạn cần nhập danh mục chi tiêu.')
+      return
+    }
+
+    const monthInput = budgetFormState.month.trim()
+    if (!monthInput) {
+      setBudgetFormError('Bạn cần chọn tháng áp dụng ngân sách.')
+      return
+    }
+
+    const limitAmount = toNumber(budgetFormState.limitAmount)
+    if (limitAmount <= 0) {
+      setBudgetFormError('Hạn mức ngân sách phải lớn hơn 0 VND.')
+      return
+    }
+
+    setBudgetSaving(true)
+    setBudgetFormError(null)
+
+    try {
+      await saveBudget(user.uid, {
+        id: budgetFormState.id ?? undefined,
+        category: normalizeCategoryName(categoryInput),
+        month: monthInput,
+        limitAmount,
+      })
+      setBudgetModalOpen(false)
+      setBudgetFormState({
+        id: null,
+        category: '',
+        month: monthInput,
+        limitAmount: '',
+      })
+    } catch (err) {
+      const anyErr = err as { code?: string; message?: string }
+      console.error('save budget failed:', anyErr?.code, anyErr?.message)
+      if (anyErr?.code === 'permission-denied') {
+        setBudgetFormError('Không có quyền lưu ngân sách. Vui lòng kiểm tra quyền truy cập.')
+      } else if (anyErr?.code === 'unauthenticated') {
+        setBudgetFormError('Bạn chưa đăng nhập. Vui lòng đăng nhập lại.')
+      } else {
+        setBudgetFormError('Không thể lưu ngân sách. Vui lòng thử lại.')
+      }
+    } finally {
+      setBudgetSaving(false)
+    }
+  }
+
+  const handleDeleteBudget = async (id: string) => {
+    if (!user) return
+    const confirmed =
+      typeof window === 'undefined' ? true : window.confirm('Bạn có chắc chắn muốn xóa ngân sách này?')
+    if (!confirmed) return
+
+    setBudgetFormError(null)
+    setBudgetDeletingId(id)
+    try {
+      await deleteBudget(user.uid, id)
+      setBudgetFormState((prev) => {
+        if (prev.id !== id) return prev
+        return {
+          id: null,
+          category: '',
+          month: getDefaultBudgetMonth(),
+          limitAmount: '',
+        }
+      })
+      setBudgetModalOpen(false)
+      setDismissedBudgetAlerts((prev) => {
+        if (!prev[id]) return prev
+        const next = { ...prev }
+        delete next[id]
+        return next
+      })
+      setBudgetTaskError((prev) => {
+        if (!prev[id]) return prev
+        const next = { ...prev }
+        delete next[id]
+        return next
+      })
+    } catch (err) {
+      console.error('delete budget failed:', err)
+      setBudgetFormError('Không thể xoá ngân sách này. Vui lòng thử lại.')
+    } finally {
+      setBudgetDeletingId(null)
+    }
+  }
+
+  const dismissBudgetAlert = (id: string) => {
+    setDismissedBudgetAlerts((prev) => ({ ...prev, [id]: true }))
+    setBudgetTaskError((prev) => {
+      if (!prev[id]) return prev
+      const next = { ...prev }
+      delete next[id]
+      return next
+    })
+  }
+
+  const handleCreateBudgetTask = async (budget: BudgetProgress) => {
+    if (!user) return
+    setCreatingTaskForBudget(budget.id)
+    setBudgetTaskError((prev) => ({ ...prev, [budget.id]: null }))
+    try {
+      const monthLabel = formatBudgetMonthLabel(budget.month)
+      const title = `Rà soát chi tiêu danh mục ${budget.category} (${monthLabel})`
+      const dueDate = getBudgetTaskDueDate(budget.month)
+      await saveTask(user.uid, { title, dueDate })
+      dismissBudgetAlert(budget.id)
+    } catch (err) {
+      console.error('create budget task failed:', err)
+      setBudgetTaskError((prev) => ({
+        ...prev,
+        [budget.id]: 'Không thể tạo nhiệm vụ. Vui lòng thử lại.',
+      }))
+    } finally {
+      setCreatingTaskForBudget(null)
+    }
+  }
 
   const handleSubmit = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault()
@@ -467,7 +806,7 @@ export function FinancePage() {
       category: t.category,
       note: t.note || '',
       date,
-      source: (t as any).source || '',
+      source: t.source || '',
     })
     setEditingId(t.id)
     setShowForm(true)
@@ -701,6 +1040,208 @@ export function FinancePage() {
         )}
       </div>
 
+      {activeBudgetAlerts.length > 0 && (
+        <div className="budget-toast-container" role="alert">
+          {activeBudgetAlerts.map((budget) => (
+            <div key={budget.id} className="budget-toast">
+              <div className="budget-toast-content">
+                <strong>Chi vượt ngân sách</strong>
+                <p>
+                  Danh mục <strong>{budget.category}</strong> ({formatBudgetMonthLabel(budget.month)}) đã chi{' '}
+                  <strong>{budget.spent.toLocaleString('vi-VN')} VND</strong>, vượt hạn mức{' '}
+                  <strong>{budget.overspent.toLocaleString('vi-VN')} VND</strong>.
+                </p>
+                {budgetTaskError[budget.id] && (
+                  <span className="budget-toast-error">{budgetTaskError[budget.id]}</span>
+                )}
+              </div>
+              <div className="budget-toast-actions">
+                <button
+                  type="button"
+                  className="budget-toast-btn"
+                  onClick={() => handleCreateBudgetTask(budget)}
+                  disabled={creatingTaskForBudget === budget.id}
+                >
+                  {creatingTaskForBudget === budget.id ? 'Đang tạo nhiệm vụ...' : 'Tạo nhiệm vụ tiết chế'}
+                </button>
+                <button
+                  type="button"
+                  className="budget-toast-btn secondary"
+                  onClick={() => openBudgetModal(budget)}
+                >
+                  Chỉnh sửa ngân sách
+                </button>
+                <button
+                  type="button"
+                  className="budget-toast-btn ghost"
+                  onClick={() => dismissBudgetAlert(budget.id)}
+                >
+                  Bỏ qua
+                </button>
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
+
+      <div className="card budgets-card">
+        <div className="budgets-header">
+          <div>
+            <h3>Ngân sách theo danh mục</h3>
+            <p>Theo dõi hạn mức chi tiêu theo từng tháng.</p>
+          </div>
+          <button type="button" className="budget-manage-btn" onClick={() => openBudgetModal()}>
+            Thiết lập ngân sách
+          </button>
+        </div>
+        {budgetsWithSpending.length === 0 ? (
+          <p>
+            Chưa có ngân sách nào. Nhấn “Thiết lập ngân sách” để đặt hạn mức cho các danh mục chi tiêu quan trọng.
+          </p>
+        ) : (
+          <ul className="budget-list">
+            {budgetsWithSpending.map((budget) => {
+              const hasLimit = budget.limitAmount > 0
+              const percentValue = hasLimit ? Math.min(Math.round(budget.percent), 999) : 0
+              return (
+                <li key={budget.id} className={`budget-item ${budget.status}`}>
+                  <div className="budget-item-head">
+                    <div className="budget-item-meta">
+                      <span
+                        className="swatch"
+                        style={{ background: colorForCategory(budget.category) }}
+                        aria-hidden
+                      />
+                      <div>
+                        <strong>{budget.category}</strong>
+                        <span className="budget-month">{formatBudgetMonthLabel(budget.month)}</span>
+                      </div>
+                    </div>
+                    <div className="budget-item-actions">
+                      <button type="button" className="link-button" onClick={() => openBudgetModal(budget)}>
+                        Chỉnh sửa
+                      </button>
+                      <button
+                        type="button"
+                        className="link-button danger-link"
+                        onClick={() => handleDeleteBudget(budget.id)}
+                        disabled={budgetDeletingId === budget.id}
+                      >
+                        {budgetDeletingId === budget.id ? 'Đang xóa...' : 'Xóa'}
+                      </button>
+                    </div>
+                  </div>
+                  <div className="budget-values">
+                    <span>
+                      Đã chi: <strong>{budget.spent.toLocaleString('vi-VN')} VND</strong>
+                    </span>
+                    <span>
+                      Hạn mức: <strong>{budget.limitAmount.toLocaleString('vi-VN')} VND</strong>
+                    </span>
+                  </div>
+                  <div className="budget-progress" aria-hidden={!hasLimit}>
+                    <div
+                      className={`budget-progress-fill ${budget.status}`}
+                      style={{ width: `${hasLimit ? Math.min(budget.percent, 100) : 0}%` }}
+                    />
+                  </div>
+                  <div className="budget-status-row">
+                    <span className={`budget-status ${budget.status}`}>
+                      {budget.status === 'danger'
+                        ? `Vượt ${budget.overspent.toLocaleString('vi-VN')} VND`
+                        : budget.status === 'warning' || budget.status === 'ok'
+                        ? `Còn ${budget.remaining.toLocaleString('vi-VN')} VND`
+                        : 'Chưa thiết lập hạn mức.'}
+                    </span>
+                    {hasLimit && <span className="budget-percent">{percentValue}%</span>}
+                  </div>
+                </li>
+              )
+            })}
+          </ul>
+        )}
+      </div>
+
+      {budgetModalOpen && (
+        <div className="modal-overlay" onClick={closeBudgetModal}>
+          <div className="modal" onClick={(event) => event.stopPropagation()}>
+            <form className="form" onSubmit={handleBudgetFormSubmit}>
+              <h3>{budgetFormState.id ? 'Cập nhật ngân sách' : 'Thiết lập ngân sách'}</h3>
+              {budgetFormError && <p className="form-error">{budgetFormError}</p>}
+              <label>
+                Danh mục chi tiêu
+                <input
+                  type="text"
+                  list="budget-category-options"
+                  value={budgetFormState.category}
+                  onChange={(event) =>
+                    setBudgetFormState((prev) => ({ ...prev, category: event.target.value }))
+                  }
+                  placeholder="Ví dụ: Ăn uống, Đi lại..."
+                  required
+                />
+                <datalist id="budget-category-options">
+                  {expenseCategoryNames.map((name) => (
+                    <option key={name} value={name} />
+                  ))}
+                </datalist>
+              </label>
+              <label>
+                Tháng áp dụng
+                <input
+                  type="month"
+                  value={budgetFormState.month}
+                  onChange={(event) =>
+                    setBudgetFormState((prev) => ({ ...prev, month: event.target.value }))
+                  }
+                  required
+                />
+              </label>
+              <label>
+                Hạn mức chi (VND)
+                <input
+                  type="text"
+                  inputMode="numeric"
+                  value={budgetFormState.limitAmount}
+                  onChange={(event) =>
+                    setBudgetFormState((prev) => ({
+                      ...prev,
+                      limitAmount: formatAmount(event.target.value),
+                    }))
+                  }
+                  placeholder="Ví dụ: 5.000.000"
+                  required
+                />
+              </label>
+              <div className="form-actions">
+                <button type="submit" disabled={budgetSaving}>
+                  {budgetSaving
+                    ? 'Đang lưu...'
+                    : budgetFormState.id
+                    ? 'Cập nhật ngân sách'
+                    : 'Lưu ngân sách'}
+                </button>
+                <button type="button" onClick={closeBudgetModal} disabled={budgetSaving}>
+                  Đóng
+                </button>
+              </div>
+              {budgetFormState.id && (
+                <button
+                  type="button"
+                  className="budget-delete-btn"
+                  onClick={() => {
+                    if (budgetFormState.id) handleDeleteBudget(budgetFormState.id)
+                  }}
+                  disabled={budgetSaving || budgetDeletingId === budgetFormState.id}
+                >
+                  {budgetDeletingId === budgetFormState.id ? 'Đang xóa...' : 'Xóa ngân sách này'}
+                </button>
+              )}
+            </form>
+          </div>
+        </div>
+      )}
+
       {showTransferModal && (
         <div className="modal-overlay" onClick={closeTransferModal}>
           <div className="modal" onClick={(event) => event.stopPropagation()}>
@@ -898,10 +1439,10 @@ export function FinancePage() {
         {/* Actions row spanning full width under charts */}
         <div className="chart-actions-row" style={{ gridColumn: '1 / -1' }}>
           <div className="chart-actions">
-            <button type="button" className="icon-btn" title="Bieu do xu huong chi tieu" onClick={() => setAnalysisModal('trend')}>Biểu đồ xu hướng chi tiêu</button>
-            <button type="button" className="icon-btn" title="So sanh chi tieu" onClick={() => setAnalysisModal('compare')}>So sánh chi tiêu</button>
-            <button type="button" className="icon-btn" title="Top danh muc chi tieu" onClick={() => setAnalysisModal('top')}>Top danh mục chi tiêu</button>
-            <button type="button" className="icon-btn" title="Bao cao tong quan dinh ky" onClick={() => setAnalysisModal('summary')}>Báo cáo tổng quan định kỳ</button>
+            <button type="button" className="icon-btn" title="Biểu đồ xu hướng chi tiêu" onClick={() => setAnalysisModal('trend')}>Biểu đồ xu hướng chi tiêu</button>
+            <button type="button" className="icon-btn" title="So sánh chi tiêu" onClick={() => setAnalysisModal('compare')}>So sánh chi tiêu</button>
+            <button type="button" className="icon-btn" title="Top danh mục chi tiêu" onClick={() => setAnalysisModal('top')}>Top danh mục chi tiêu</button>
+            <button type="button" className="icon-btn" title="Báo cáo tổng quan định kỳ" onClick={() => setAnalysisModal('summary')}>Báo cáo tổng quan định kỳ</button>
           </div>
         </div>
       </div>
@@ -1070,16 +1611,16 @@ export function FinancePage() {
                   </div>
                 </div>
                 <div className="item-actions">
-                  {((transaction as any).source as string | undefined) && (() => {
-                    const key = (transaction as any).source as keyof typeof LOGOS
+                  {transaction.source && (() => {
+                    const key = transaction.source as keyof typeof LOGOS
                     const src = LOGOS[key]
                     if (!src) return null
                     return (
                       <img
                         className="source-logo"
                         src={src}
-                        alt={formatSource((transaction as any).source)}
-                        title={formatSource((transaction as any).source)}
+                        alt={formatSource(transaction.source)}
+                        title={formatSource(transaction.source)}
                       />
                     )
                   })()}
