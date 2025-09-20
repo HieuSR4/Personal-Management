@@ -1,13 +1,13 @@
-import { HashRouter, Route, Routes } from 'react-router-dom'
+import { HashRouter, Navigate, Route, Routes } from 'react-router-dom'
 import './App.css'
 import { Header } from './components/Header'
 import { RequireAuth } from './components/RequireAuth'
-import { DashboardPage } from './pages/DashboardPage'
 import { FinancePage } from './pages/FinancePage'
 import { NotesPage } from './pages/NotesPage'
-import { TasksPage } from './pages/TasksPage'
 import LoginPage from './pages/LoginPage'
 import { useAuth } from './contexts/AuthContext'
+import { InvestmentPage } from './pages/InvestmentPage.tsx'
+import { MarketPage } from './pages/MarketPage.tsx'
 
 function App() {
   const { user } = useAuth()
@@ -22,7 +22,7 @@ function App() {
               path="/"
               element={
                 <RequireAuth>
-                  <DashboardPage />
+                  <Navigate to="/finance" replace />
                 </RequireAuth>
               }
             />
@@ -35,10 +35,18 @@ function App() {
               }
             />
             <Route
-              path="/tasks"
+              path="/investment"
               element={
                 <RequireAuth>
-                  <TasksPage />
+                  <InvestmentPage />
+                </RequireAuth>
+              }
+            />
+            <Route
+              path="/market"
+              element={
+                <RequireAuth>
+                  <MarketPage />
                 </RequireAuth>
               }
             />
@@ -54,8 +62,8 @@ function App() {
               path="*"
               element={
                 <div className="card">
-                  <h2>Khong tim thay trang</h2>
-                  <p>Duong dan ban truy cap khong ton tai.</p>
+                  <h2>Không tìm thấy trang</h2>
+                  <p>Đường dẫn bạn truy cập không tồn tại.</p>
                 </div>
               }
             />

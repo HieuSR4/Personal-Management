@@ -3,9 +3,9 @@ import { NavLink, useLocation } from 'react-router-dom'
 import { useAuth } from '../contexts/AuthContext'
 
 const routes = [
-  { path: '/', label: 'Tổng quan', end: true },
   { path: '/finance', label: 'Tài chính' },
-  { path: '/tasks', label: 'Việc cần làm' },
+  { path: '/investment', label: 'Danh mục đầu tư' },
+  { path: '/market', label: 'Theo dõi thị trường' },
   { path: '/notes', label: 'Ghi chú' },
 ]
 
@@ -54,7 +54,7 @@ export function Header() {
           <NavLink
             key={route.path}
             to={route.path}
-            end={route.end}
+            end
             className={({ isActive }) => (isActive ? 'active' : undefined)}
           >
             {route.label}
