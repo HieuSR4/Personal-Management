@@ -1678,28 +1678,6 @@ textarea {
   color: #f8fafc;
 }
 
-.budget-delete-btn {
-  margin-top: 12px;
-  align-self: flex-start;
-  padding: 8px 14px;
-  border-radius: 10px;
-  border: 1px solid rgba(248, 113, 113, 0.45);
-  background: rgba(127, 29, 29, 0.35);
-  color: #fecaca;
-  font-weight: 600;
-  cursor: pointer;
-  transition: filter 0.2s ease;
-}
-
-.budget-delete-btn:hover {
-  filter: brightness(1.05);
-}
-
-.budget-delete-btn[disabled] {
-  opacity: 0.65;
-  cursor: not-allowed;
-}
-
 /* Trend analysis modal */
 .trend-analysis {
   display: flex;

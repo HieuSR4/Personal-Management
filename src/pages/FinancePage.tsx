@@ -102,6 +102,28 @@ function getDefaultBudgetMonth() {
   return toMonthKey(new Date())
 }
 
+function parseMonthKey(month: string) {
+  const [yearStr, monthStr] = month.split('-')
+  const year = Number(yearStr)
+  const monthNumber = Number(monthStr)
+  if (!Number.isFinite(year) || !Number.isFinite(monthNumber)) return null
+  if (monthNumber < 1 || monthNumber > 12) return null
+  return { year, month: monthNumber }
+}
+
+function compareMonthKeys(a: string, b: string) {
+  if (!a && !b) return 0
+  if (!a) return -1
+  if (!b) return 1
+  const parsedA = parseMonthKey(a)
+  const parsedB = parseMonthKey(b)
+  if (!parsedA && !parsedB) return 0
+  if (!parsedA) return -1
+  if (!parsedB) return 1
+  if (parsedA.year !== parsedB.year) return parsedA.year - parsedB.year
+  return parsedA.month - parsedB.month
+}
+
 function getBudgetTaskDueDate(month: string) {
   const [yearStr, monthStr] = month.split('-')
   const year = Number(yearStr)
@@ -126,6 +148,7 @@ export function FinancePage() {
   const [transactions, setTransactions] = useState<Transaction[]>([])
   const [sources, setSources] = useState<MoneySource[]>([])
   const [budgets, setBudgets] = useState<Budget[]>([])
+  const [currentMonthKey, setCurrentMonthKey] = useState(() => getDefaultBudgetMonth())
   const [budgetModalOpen, setBudgetModalOpen] = useState(false)
   const [budgetFormState, setBudgetFormState] = useState<BudgetFormState>(() => ({
     id: null,
@@ -207,6 +230,42 @@ export function FinancePage() {
     if (!user) return
     return subscribeToBudgets(user.uid, setBudgets)
   }, [user])
+
+  useEffect(() => {
+    const updateMonthKey = () => {
+      setCurrentMonthKey((prev) => {
+        const next = getDefaultBudgetMonth()
+        return prev === next ? prev : next
+      })
+    }
+
+    if (typeof window === 'undefined') {
+      updateMonthKey()
+      return
+    }
+
+    let timeoutId: number | undefined
+
+    const scheduleNextUpdate = () => {
+      const now = new Date()
+      const nextMonthStart = new Date(now.getFullYear(), now.getMonth() + 1, 1, 0, 0, 0, 0)
+      const diff = nextMonthStart.getTime() - now.getTime()
+      const MIN_DELAY = 1_000
+      const MAX_DELAY = 2_147_483_647
+      const delay = Math.min(Math.max(diff, MIN_DELAY), MAX_DELAY)
+      timeoutId = window.setTimeout(() => {
+        updateMonthKey()
+        scheduleNextUpdate()
+      }, delay)
+    }
+
+    updateMonthKey()
+    scheduleNextUpdate()
+
+    return () => {
+      if (timeoutId !== undefined) window.clearTimeout(timeoutId)
+    }
+  }, [])
 
   useEffect(() => {
     const exists = transferTarget ? sources.some((source) => source.key === transferTarget) : false
@@ -317,7 +376,11 @@ export function FinancePage() {
     return budgets
       .map((budget) => {
         const category = normalizeCategoryName(budget.category)
-        const month = (budget.month || '').trim()
+        const rawMonth = (budget.month || '').trim()
+        let month = rawMonth || currentMonthKey
+        if (month && currentMonthKey && compareMonthKeys(month, currentMonthKey) < 0) {
+          month = currentMonthKey
+        }
         const key = `${month}|${category}`
         const spent = expensesByCategoryMonth.get(key) ?? 0
         const limitAmount = Number(budget.limitAmount) || 0
@@ -347,7 +410,7 @@ export function FinancePage() {
         if (a.month !== b.month) return b.month.localeCompare(a.month)
         return a.category.localeCompare(b.category, 'vi', { sensitivity: 'base' })
       })
-  }, [budgets, expensesByCategoryMonth])
+  }, [budgets, currentMonthKey, expensesByCategoryMonth])
 
   const overspentBudgets = useMemo(
     () => budgetsWithSpending.filter((budget) => budget.status === 'danger'),
@@ -1225,18 +1288,7 @@ export function FinancePage() {
                   Đóng
                 </button>
               </div>
-              {budgetFormState.id && (
-                <button
-                  type="button"
-                  className="budget-delete-btn"
-                  onClick={() => {
-                    if (budgetFormState.id) handleDeleteBudget(budgetFormState.id)
-                  }}
-                  disabled={budgetSaving || budgetDeletingId === budgetFormState.id}
-                >
-                  {budgetDeletingId === budgetFormState.id ? 'Đang xóa...' : 'Xóa ngân sách này'}
-                </button>
-              )}
+              
             </form>
           </div>
         </div>
