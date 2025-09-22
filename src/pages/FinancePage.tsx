@@ -180,6 +180,7 @@ export function FinancePage() {
   const [transferTarget, setTransferTarget] = useState('')
   const [transferSaving, setTransferSaving] = useState(false)
   const [transferError, setTransferError] = useState<string | null>(null)
+  const [transactionCategoryFilter, setTransactionCategoryFilter] = useState<string>('all')
   const isMountedRef = useRef(true)
 
   const fetchUsdtRate = useCallback(async () => {
@@ -357,6 +358,44 @@ export function FinancePage() {
         return (originalOrder.get(a.id) ?? 0) - (originalOrder.get(b.id) ?? 0)
       })
   }, [transactions])
+
+  const transactionCategoryOptions = useMemo(() => {
+    const categoriesInData = new Set<string>()
+    transactions.forEach((transaction) => {
+      const categoryName = normalizeCategoryName(transaction.category)
+      categoriesInData.add(categoryName)
+    })
+
+    const preferredOrder = Array.from(
+      new Set(
+        ALL_CATEGORIES.map((category) => category.label).filter((label) =>
+          categoriesInData.has(label),
+        ),
+      ),
+    )
+    const dynamicCategories = Array.from(categoriesInData).filter(
+      (category) => !preferredOrder.includes(category),
+    )
+    dynamicCategories.sort((a, b) => a.localeCompare(b, 'vi'))
+
+    return [...preferredOrder, ...dynamicCategories]
+  }, [transactions])
+
+  useEffect(() => {
+    if (
+      transactionCategoryFilter !== 'all' &&
+      !transactionCategoryOptions.includes(transactionCategoryFilter)
+    ) {
+      setTransactionCategoryFilter('all')
+    }
+  }, [transactionCategoryFilter, transactionCategoryOptions])
+
+  const filteredTransactions = useMemo(() => {
+    if (transactionCategoryFilter === 'all') return sortedTransactions
+    return sortedTransactions.filter(
+      (transaction) => normalizeCategoryName(transaction.category) === transactionCategoryFilter,
+    )
+  }, [sortedTransactions, transactionCategoryFilter])
 
   const expensesByCategoryMonth = useMemo(() => {
     const totals = new Map<string, number>()
@@ -1640,12 +1679,52 @@ export function FinancePage() {
       )}
 
       <div className="card list">
-        <h3>Lịch sử giao dịch</h3>
+        <div className="transaction-history-header">
+          <h3>Lịch sử giao dịch</h3>
+          <div className="transaction-filter">
+            <label className="transaction-filter-field" htmlFor="transaction-category-filter">
+              <div className="transaction-filter-select-wrapper">
+                <span className="transaction-filter-icon" aria-hidden="true">
+                  <svg width="18" height="18" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+                    <path
+                      d="M4 5.5C4 5.22386 4.22386 5 4.5 5H19.5C19.7761 5 20 5.22386 20 5.5C20 5.63261 19.9473 5.75979 19.8536 5.85355L14.8536 10.8536C14.7598 10.9473 14.7071 11.0745 14.7071 11.2071V17.25L9.29289 19.9142C9.02698 20.0472 8.70203 19.972 8.53968 19.7325C8.487 19.6535 8.45868 19.561 8.45868 19.4661V11.2071C8.45868 11.0745 8.40598 10.9473 8.31223 10.8536L3.31223 5.85355C3.21848 5.75979 3.16577 5.63261 3.16577 5.5C3.16577 5.22386 3.38962 5 3.66577 5H4Z"
+                      fill="currentColor"
+                    />
+                  </svg>
+                </span>
+                <select
+                  id="transaction-category-filter"
+                  value={transactionCategoryFilter}
+                  onChange={(event) => setTransactionCategoryFilter(event.target.value)}
+                >
+                  <option value="all">Tất cả</option>
+                  {transactionCategoryOptions.map((category) => (
+                    <option key={category} value={category}>
+                      {category}
+                    </option>
+                  ))}
+                </select>
+                <span className="transaction-filter-caret" aria-hidden="true">▾</span>
+              </div>
+            </label>
+            {transactionCategoryFilter !== 'all' && (
+              <button
+                type="button"
+                className="transaction-filter-reset"
+                onClick={() => setTransactionCategoryFilter('all')}
+              >
+                Xóa lọc
+              </button>
+            )}
+          </div>
+        </div>
         {sortedTransactions.length === 0 ? (
           <p>Chưa có giao dịch nào. Hãy thêm giao dịch đầu tiên của bạn.</p>
+          ) : filteredTransactions.length === 0 ? (
+          <p>Không có giao dịch nào trong danh mục này.</p>
         ) : (
           <ul>
-            {sortedTransactions.map((transaction) => (
+            {filteredTransactions.map((transaction) => (
               <li key={transaction.id} className={`item ${transaction.type}`}>
                 <div>
                   <strong>{transaction.category}</strong>
