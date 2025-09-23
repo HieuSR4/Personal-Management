@@ -35,6 +35,7 @@ const EXPENSE_CATEGORIES: { key: string; label: string; color: string }[] = [
   { key: 'Giải trí', label: 'Giải trí', color: '#f97316' },
   { key: 'Giáo dục', label: 'Giáo dục', color: '#22c55e' },
   { key: 'Nhà cửa', label: 'Nhà cửa', color: '#64748b' },
+  { key: 'Đầu tư', label: 'Đầu tư', color: '#046223ff' },
   { key: 'Du lịch', label: 'Du lịch', color: '#06b6d4' },
   { key: 'Khác', label: 'Khác', color: '#475569' },
 ]
