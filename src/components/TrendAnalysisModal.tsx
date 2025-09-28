@@ -1,6 +1,7 @@
 import { useMemo, useState } from 'react'
 import type { Transaction } from '../types'
 import { TrendChart, type TrendPoint } from './TrendChart.tsx'
+import { isInternalTransferExpense } from '../utils/transactions.ts'
 
 const RANGE_OPTIONS = [
   { key: '3m', label: '3 tháng gần nhất', months: 3 },
@@ -57,7 +58,9 @@ function normalizeMonth(date: Date) {
 }
 
 function computeMonthlyTrend(transactions: Transaction[], range: TrendRangeKey): TrendComputation {
-  const expenseTransactions = transactions.filter((transaction) => transaction.type === 'expense')
+  const expenseTransactions = transactions.filter(
+    (transaction) => transaction.type === 'expense' && !isInternalTransferExpense(transaction),
+  )
   const monthTotals = new Map<string, number>()
   let minMonth: Date | null = null
   let maxMonth: Date | null = null

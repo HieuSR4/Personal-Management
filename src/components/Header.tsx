@@ -5,6 +5,7 @@ import { useAuth } from '../contexts/AuthContext'
 const routes = [
   { path: '/finance', label: 'Tài chính' },
   { path: '/investment', label: 'Danh mục đầu tư' },
+  { path: '/market', label: 'Thị trường' },
   { path: '/notes', label: 'Ghi chú' },
 ]
 

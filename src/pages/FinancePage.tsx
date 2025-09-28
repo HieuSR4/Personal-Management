@@ -17,6 +17,7 @@ import { DonutChart } from '../components/DonutChart'
 import { BarChart } from '../components/BarChart'
 import { TrendAnalysisModal } from '../components/TrendAnalysisModal'
 import { combineDateWithCurrentTime } from '../utils/date.ts'
+import { normalizeCategoryName } from '../utils/transactions.ts'
 
 const LOGOS = {
   MoMo: new URL('../../res/img/momo.png', import.meta.url).href,
@@ -61,6 +62,9 @@ function colorForCategory(label: string) {
 
 const monthLabelFormatter = new Intl.DateTimeFormat('vi-VN', { month: 'long', year: 'numeric' })
 
+const INTERNAL_TRANSFER_CATEGORY = 'Rút tiền'
+const INTERNAL_TRANSFER_SOURCE_KEYS = new Set(['binance'])
+
 type BudgetFormState = {
   id: string | null
   category: string
@@ -76,9 +80,14 @@ type BudgetProgress = Budget & {
   overspent: number
 }
 
-function normalizeCategoryName(value: string | undefined) {
-  const normalized = (value ?? '').trim()
-  return normalized || 'Không phân loại'
+function isInternalTransferExpense(transaction: Transaction) {
+  if (transaction.type !== 'expense') return false
+  const categoryName = normalizeCategoryName(transaction.category)
+  if (categoryName !== INTERNAL_TRANSFER_CATEGORY) return false
+  const sourceKey = transaction.source?.trim().toLowerCase()
+  if (sourceKey && INTERNAL_TRANSFER_SOURCE_KEYS.has(sourceKey)) return true
+  const note = transaction.note?.toLowerCase() ?? ''
+  return note.includes('binance')
 }
 
 function toMonthKey(date: Date) {
@@ -173,6 +182,7 @@ export function FinancePage() {
   const [sourceInputs, setSourceInputs] = useState<Record<string, string>>({})
   const [sourceSaving, setSourceSaving] = useState<Record<string, boolean>>({})
   const [sourceExpanded, setSourceExpanded] = useState<Record<string, boolean>>({})
+  const [budgetsExpanded, setBudgetsExpanded] = useState(false)
   const [usdtVndRate, setUsdtVndRate] = useState<number | null>(null)
   const [usdtRateUpdatedAt, setUsdtRateUpdatedAt] = useState<string | null>(null)
   const [usdtRateLoading, setUsdtRateLoading] = useState(false)
@@ -182,6 +192,7 @@ export function FinancePage() {
   const [transferSaving, setTransferSaving] = useState(false)
   const [transferError, setTransferError] = useState<string | null>(null)
   const [transactionCategoryFilter, setTransactionCategoryFilter] = useState<string>('all')
+  const [transactionDateFilter, setTransactionDateFilter] = useState<string>('')
   const isMountedRef = useRef(true)
 
   const fetchUsdtRate = useCallback(async () => {
@@ -392,16 +403,56 @@ export function FinancePage() {
   }, [transactionCategoryFilter, transactionCategoryOptions])
 
   const filteredTransactions = useMemo(() => {
-    if (transactionCategoryFilter === 'all') return sortedTransactions
+    const matchesCategory = (transaction: Transaction) =>
+      transactionCategoryFilter === 'all' ||
+      normalizeCategoryName(transaction.category) === transactionCategoryFilter
+
+    const matchesDate = (transaction: Transaction) => {
+      if (!transactionDateFilter) return true
+      const createdAt = transaction.createdAt
+      if (!createdAt) return false
+      const time = new Date(createdAt).getTime()
+      if (Number.isNaN(time)) return false
+      const [year, month, day] = transactionDateFilter.split('-').map((part) => Number(part))
+      if (!year || !month || !day) return false
+      const filterDate = new Date(year, month - 1, day)
+      if (Number.isNaN(filterDate.getTime())) return false
+      const transactionDate = new Date(time)
+      return (
+        filterDate.getFullYear() === transactionDate.getFullYear() &&
+        filterDate.getMonth() === transactionDate.getMonth() &&
+        filterDate.getDate() === transactionDate.getDate()
+      )
+    }
+
     return sortedTransactions.filter(
-      (transaction) => normalizeCategoryName(transaction.category) === transactionCategoryFilter,
+      (transaction) => matchesCategory(transaction) && matchesDate(transaction),
     )
-  }, [sortedTransactions, transactionCategoryFilter])
+  }, [sortedTransactions, transactionCategoryFilter, transactionDateFilter])
+
+  const filteredDateExpenseTotal = useMemo(() => {
+    if (!transactionDateFilter) return 0
+    return filteredTransactions.reduce((total, transaction) => {
+      if (transaction.type !== 'expense') return total
+      if (isInternalTransferExpense(transaction)) return total
+      return total + transaction.amount
+    }, 0)
+  }, [filteredTransactions, transactionDateFilter])
+
+  const formattedTransactionDateFilter = useMemo(() => {
+    if (!transactionDateFilter) return ''
+    const [year, month, day] = transactionDateFilter.split('-').map((part) => Number(part))
+    if (!year || !month || !day) return transactionDateFilter
+    const date = new Date(year, month - 1, day)
+    if (Number.isNaN(date.getTime())) return transactionDateFilter
+    return date.toLocaleDateString('vi-VN')
+  }, [transactionDateFilter])
 
   const expensesByCategoryMonth = useMemo(() => {
     const totals = new Map<string, number>()
     transactions.forEach((transaction) => {
       if (transaction.type !== 'expense') return
+      if (isInternalTransferExpense(transaction)) return
       const date = new Date(transaction.createdAt)
       const monthKey = toMonthKey(date)
       if (!monthKey) return
@@ -1189,79 +1240,94 @@ export function FinancePage() {
 
       <div className="card budgets-card">
         <div className="budgets-header">
-          <div>
-            <h3>Ngân sách theo danh mục</h3>
-            <p>Theo dõi hạn mức chi tiêu theo từng tháng.</p>
-          </div>
+          <button
+            type="button"
+            className="budgets-toggle"
+            onClick={() => setBudgetsExpanded((prev) => !prev)}
+            aria-expanded={budgetsExpanded}
+            aria-controls="category-budgets-panel"
+          >
+            <div className="budgets-toggle-text">
+              <h3>Ngân sách theo danh mục</h3>
+              <p>Theo dõi hạn mức chi tiêu theo từng tháng.</p>
+            </div>
+            <span className={`budgets-toggle-icon ${budgetsExpanded ? 'open' : ''}`} aria-hidden>
+              ▾
+            </span>
+          </button>
           <button type="button" className="budget-manage-btn" onClick={() => openBudgetModal()}>
             Thiết lập ngân sách
           </button>
         </div>
-        {budgetsWithSpending.length === 0 ? (
-          <p>
-            Chưa có ngân sách nào. Nhấn “Thiết lập ngân sách” để đặt hạn mức cho các danh mục chi tiêu quan trọng.
-          </p>
-        ) : (
-          <ul className="budget-list">
-            {budgetsWithSpending.map((budget) => {
-              const hasLimit = budget.limitAmount > 0
-              const percentValue = hasLimit ? Math.min(Math.round(budget.percent), 999) : 0
-              return (
-                <li key={budget.id} className={`budget-item ${budget.status}`}>
-                  <div className="budget-item-head">
-                    <div className="budget-item-meta">
-                      <span
-                        className="swatch"
-                        style={{ background: colorForCategory(budget.category) }}
-                        aria-hidden
-                      />
-                      <div>
-                        <strong>{budget.category}</strong>
-                        <span className="budget-month">{formatBudgetMonthLabel(budget.month)}</span>
+        {budgetsExpanded && (
+          <div id="category-budgets-panel">
+            {budgetsWithSpending.length === 0 ? (
+              <p>
+                Chưa có ngân sách nào. Nhấn “Thiết lập ngân sách” để đặt hạn mức cho các danh mục chi tiêu quan trọng.
+              </p>
+            ) : (
+              <ul className="budget-list">
+                {budgetsWithSpending.map((budget) => {
+                  const hasLimit = budget.limitAmount > 0
+                  const percentValue = hasLimit ? Math.min(Math.round(budget.percent), 999) : 0
+                  return (
+                    <li key={budget.id} className={`budget-item ${budget.status}`}>
+                      <div className="budget-item-head">
+                        <div className="budget-item-meta">
+                          <span
+                            className="swatch"
+                            style={{ background: colorForCategory(budget.category) }}
+                            aria-hidden
+                          />
+                          <div>
+                            <strong>{budget.category}</strong>
+                            <span className="budget-month">{formatBudgetMonthLabel(budget.month)}</span>
+                          </div>
+                        </div>
+                        <div className="budget-item-actions">
+                          <button type="button" className="link-button" onClick={() => openBudgetModal(budget)}>
+                            Chỉnh sửa
+                          </button>
+                          <button
+                            type="button"
+                            className="link-button danger-link"
+                            onClick={() => handleDeleteBudget(budget.id)}
+                            disabled={budgetDeletingId === budget.id}
+                          >
+                            {budgetDeletingId === budget.id ? 'Đang xóa...' : 'Xóa'}
+                          </button>
+                        </div>
                       </div>
-                    </div>
-                    <div className="budget-item-actions">
-                      <button type="button" className="link-button" onClick={() => openBudgetModal(budget)}>
-                        Chỉnh sửa
-                      </button>
-                      <button
-                        type="button"
-                        className="link-button danger-link"
-                        onClick={() => handleDeleteBudget(budget.id)}
-                        disabled={budgetDeletingId === budget.id}
-                      >
-                        {budgetDeletingId === budget.id ? 'Đang xóa...' : 'Xóa'}
-                      </button>
-                    </div>
-                  </div>
-                  <div className="budget-values">
-                    <span>
-                      Đã chi: <strong>{budget.spent.toLocaleString('vi-VN')} VND</strong>
-                    </span>
-                    <span>
-                      Hạn mức: <strong>{budget.limitAmount.toLocaleString('vi-VN')} VND</strong>
-                    </span>
-                  </div>
-                  <div className="budget-progress" aria-hidden={!hasLimit}>
-                    <div
-                      className={`budget-progress-fill ${budget.status}`}
-                      style={{ width: `${hasLimit ? Math.min(budget.percent, 100) : 0}%` }}
-                    />
-                  </div>
-                  <div className="budget-status-row">
-                    <span className={`budget-status ${budget.status}`}>
-                      {budget.status === 'danger'
-                        ? `Vượt ${budget.overspent.toLocaleString('vi-VN')} VND`
-                        : budget.status === 'warning' || budget.status === 'ok'
-                        ? `Còn ${budget.remaining.toLocaleString('vi-VN')} VND`
-                        : 'Chưa thiết lập hạn mức.'}
-                    </span>
-                    {hasLimit && <span className="budget-percent">{percentValue}%</span>}
-                  </div>
-                </li>
-              )
-            })}
-          </ul>
+                    <div className="budget-values">
+                        <span>
+                          Đã chi: <strong>{budget.spent.toLocaleString('vi-VN')} VND</strong>
+                        </span>
+                        <span>
+                          Hạn mức: <strong>{budget.limitAmount.toLocaleString('vi-VN')} VND</strong>
+                        </span>
+                      </div>
+                      <div className="budget-progress" aria-hidden={!hasLimit}>
+                        <div
+                          className={`budget-progress-fill ${budget.status}`}
+                          style={{ width: `${hasLimit ? Math.min(budget.percent, 100) : 0}%` }}
+                        />
+                      </div>
+                      <div className="budget-status-row">
+                        <span className={`budget-status ${budget.status}`}>
+                          {budget.status === 'danger'
+                            ? `Vượt ${budget.overspent.toLocaleString('vi-VN')} VND`
+                            : budget.status === 'warning' || budget.status === 'ok'
+                            ? `Còn ${budget.remaining.toLocaleString('vi-VN')} VND`
+                            : 'Chưa thiết lập hạn mức.'}
+                        </span>
+                        {hasLimit && <span className="budget-percent">{percentValue}%</span>}
+                      </div>
+                    </li>
+                  )
+                })}
+              </ul>
+            )}
+          </div>
         )}
       </div>
 
@@ -1481,9 +1547,10 @@ export function FinancePage() {
             const byCat = new Map<string, number>()
             transactions.forEach((t) => {
               if (t.type !== 'expense') return
+              if (isInternalTransferExpense(t)) return
               const d = new Date(t.createdAt)
               if (d < monthStart) return
-              const key = t.category || 'Khác'
+              const key = normalizeCategoryName(t.category)
               byCat.set(key, (byCat.get(key) || 0) + t.amount)
             })
             const data = Array.from(byCat.entries())
@@ -1518,7 +1585,7 @@ export function FinancePage() {
               const d = new Date(t.createdAt)
               if (d < monthStart) return
               if (t.type === 'income') income += t.amount
-              else expense += t.amount
+              else if (!isInternalTransferExpense(t)) expense += t.amount
             })
             const data = [
               { label: 'Thu', value: income, color: '#22c55e' },
@@ -1684,6 +1751,7 @@ export function FinancePage() {
           <h3>Lịch sử giao dịch</h3>
           <div className="transaction-filter">
             <label className="transaction-filter-field" htmlFor="transaction-category-filter">
+              <span className="transaction-filter-label">Danh mục</span>
               <div className="transaction-filter-select-wrapper">
                 <span className="transaction-filter-icon" aria-hidden="true">
                   <svg width="18" height="18" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
@@ -1708,17 +1776,45 @@ export function FinancePage() {
                 <span className="transaction-filter-caret" aria-hidden="true">▾</span>
               </div>
             </label>
-            {transactionCategoryFilter !== 'all' && (
+            <label className="transaction-filter-field" htmlFor="transaction-date-filter">
+              <span className="transaction-filter-label">Ngày</span>
+              <div className="transaction-filter-select-wrapper">
+                <span className="transaction-filter-icon" aria-hidden="true">
+                  <svg width="18" height="18" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+                    <path
+                      d="M7 2C7.55228 2 8 2.44772 8 3V4H16V3C16 2.44772 16.4477 2 17 2C17.5523 2 18 2.44772 18 3V4H19C20.6569 4 22 5.34315 22 7V19C22 20.6569 20.6569 22 19 22H5C3.34315 22 2 20.6569 2 19V7C2 5.34315 3.34315 4 5 4H6V3C6 2.44772 6.44772 2 7 2ZM4 9V19C4 19.5523 4.44772 20 5 20H19C19.5523 20 20 19.5523 20 19V9H4Z"
+                      fill="currentColor"
+                    />
+                  </svg>
+                </span>
+                <input
+                  id="transaction-date-filter"
+                  type="date"
+                  value={transactionDateFilter}
+                  onChange={(event) => setTransactionDateFilter(event.target.value)}
+                />
+              </div>
+            </label>
+            {(transactionCategoryFilter !== 'all' || transactionDateFilter) && (
               <button
                 type="button"
                 className="transaction-filter-reset"
-                onClick={() => setTransactionCategoryFilter('all')}
+                onClick={() => {
+                  setTransactionCategoryFilter('all')
+                  setTransactionDateFilter('')
+                }}
               >
                 Xóa lọc
               </button>
             )}
           </div>
         </div>
+        {transactionDateFilter && (
+          <div className="transaction-filter-summary" role="status">
+            Tổng chi tiêu ngày {formattedTransactionDateFilter}:{' '}
+            <strong>{filteredDateExpenseTotal.toLocaleString('vi-VN')} VND</strong>
+          </div>
+        )}
         {sortedTransactions.length === 0 ? (
           <p>Chưa có giao dịch nào. Hãy thêm giao dịch đầu tiên của bạn.</p>
           ) : filteredTransactions.length === 0 ? (
