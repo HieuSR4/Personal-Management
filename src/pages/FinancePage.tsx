@@ -423,20 +423,43 @@ export function FinancePage() {
   const calendarLabel = useMemo(() => monthLabelFormatter.format(calendarMonth), [calendarMonth])
 
   const transactionsByDay = useMemo(() => {
-    const map = new Map<string, { income: number; expense: number; count: number }>()
+    const map = new Map<
+      string,
+      {
+        income: number
+        expense: number
+        count: number
+        incomeDetails: DailySummaryDetail[]
+        expenseDetails: DailySummaryDetail[]
+      }
+    >()
+    const appendDetail = (list: DailySummaryDetail[], label: string, amount: number) => {
+      const existing = list.find((detail) => detail.label === label)
+      if (existing) existing.amount += amount
+      else list.push({ label, amount })
+    }
     transactions.forEach((transaction) => {
       const created = new Date(transaction.createdAt)
       if (Number.isNaN(created.getTime())) return
       if (transaction.type !== 'income' && isInternalTransferExpense(transaction)) return
       const key = formatDateKey(created)
-      const entry = map.get(key) ?? { income: 0, expense: 0, count: 0 }
-      if (transaction.type === 'income') entry.income += transaction.amount
-      else entry.expense += transaction.amount
+      const entry = (
+        map.get(key) ?? { income: 0, expense: 0, count: 0, incomeDetails: [], expenseDetails: [] }
+      )
+      const categoryLabel = normalizeCategoryName(transaction.category || 'Kh?c') || 'Kh?c'
+      if (transaction.type === 'income') {
+        entry.income += transaction.amount
+        appendDetail(entry.incomeDetails, categoryLabel, transaction.amount)
+      } else {
+        entry.expense += transaction.amount
+        appendDetail(entry.expenseDetails, categoryLabel, transaction.amount)
+      }
       entry.count += 1
       map.set(key, entry)
     })
     return map
   }, [transactions])
+
 
   const calendarCells = useMemo<CalendarCell[]>(() => {
     const year = calendarMonth.getFullYear()
@@ -1891,13 +1914,17 @@ export function FinancePage() {
                         const income = entry?.income ?? 0
                         const expense = entry?.expense ?? 0
                         const count = entry?.count ?? 0
+        const incomeDetails = entry?.incomeDetails ?? []
+        const expenseDetails = entry?.expenseDetails ?? []
+        const tooltipDate = cell.date.toLocaleDateString('vi-VN', { day: '2-digit', month: '2-digit', year: 'numeric' })
+        const hasTransactions = incomeDetails.length > 0 || expenseDetails.length > 0
                         const hasData = income > 0 || expense > 0
                         const isToday = dayKey === todayKey
                         const classNames = ['calendar-day']
                         if (isToday) classNames.push('calendar-day--today')
                         if (hasData) classNames.push('calendar-day--has-data')
                         return (
-                          <div key={cell.key} className={classNames.join(' ')} title={hasData ? `${income > 0 ? `+${income.toLocaleString('vi-VN')} VND` : ''}${income > 0 && expense > 0 ? ' | ' : ''}${expense > 0 ? `-${expense.toLocaleString('vi-VN')} VND` : ''}` : undefined}>
+                          <div key={cell.key} className={classNames.join(' ')}>
                             <div className="calendar-day__top">
                               <span className="calendar-day__number">{cell.date.getDate()}</span>
                               {count > 0 && <span className="calendar-day__badge">{count}</span>}
@@ -1908,6 +1935,49 @@ export function FinancePage() {
                               )}
                               {expense > 0 && (
                                 <span className="calendar-day__value calendar-day__value--negative">-{expense.toLocaleString('vi-VN')}</span>
+                              )}
+                            </div>
+                            <div className="calendar-day__tooltip" role="tooltip">
+                              <span className="calendar-day__tooltip-date">{tooltipDate}</span>
+                              {hasTransactions ? (
+                                <>
+                                  <div className="calendar-day__tooltip-section">
+                                    <span className="calendar-day__tooltip-heading calendar-day__tooltip-heading--income">Thu</span>
+                                    {incomeDetails.length > 0 ? (
+                                      <ul className="calendar-day__tooltip-list">
+                                        {incomeDetails.map((detail, index) => (
+                                          <li key={`income-${detail.label}-${index}`} className="calendar-day__tooltip-item">
+                                            <span className="calendar-day__tooltip-item-label">{detail.label}</span>
+                                            <span className="calendar-day__tooltip-item-value calendar-day__tooltip-item-value--income">
+                                              +{detail.amount.toLocaleString('vi-VN')} VND
+                                            </span>
+                                          </li>
+                                        ))}
+                                      </ul>
+                                    ) : (
+                                      <span className="calendar-day__tooltip-empty">Không có khoản thu</span>
+                                    )}
+                                  </div>
+                                  <div className="calendar-day__tooltip-section">
+                                    <span className="calendar-day__tooltip-heading calendar-day__tooltip-heading--expense">Chi</span>
+                                    {expenseDetails.length > 0 ? (
+                                      <ul className="calendar-day__tooltip-list">
+                                        {expenseDetails.map((detail, index) => (
+                                          <li key={`expense-${detail.label}-${index}`} className="calendar-day__tooltip-item">
+                                            <span className="calendar-day__tooltip-item-label">{detail.label}</span>
+                                            <span className="calendar-day__tooltip-item-value calendar-day__tooltip-item-value--expense">
+                                              -{detail.amount.toLocaleString('vi-VN')} VND
+                                            </span>
+                                          </li>
+                                        ))}
+                                      </ul>
+                                    ) : (
+                                      <span className="calendar-day__tooltip-empty">Kh?ng c? chi</span>
+                                    )}
+                                  </div>
+                                </>
+                              ) : (
+                                <span className="calendar-day__tooltip-empty">Kh?ng c? giao d?ch</span>
                               )}
                             </div>
                           </div>
