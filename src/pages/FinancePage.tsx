@@ -942,6 +942,12 @@ export function FinancePage() {
 
   const handleDelete = async (id: string) => {
     if (!user) return
+    const confirmed = (
+      typeof window === 'undefined'
+      ? true
+      : window.confirm('Bạn có chắc chắn muốn xoá giao dịch này?')
+    )
+    if (!confirmed) return
     try {
       await deleteTransaction(user.uid, id)
     } catch (err) {
@@ -1867,3 +1873,4 @@ export function FinancePage() {
     </section>
   )
 }
+
