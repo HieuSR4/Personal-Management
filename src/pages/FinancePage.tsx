@@ -1972,12 +1972,12 @@ export function FinancePage() {
                                         ))}
                                       </ul>
                                     ) : (
-                                      <span className="calendar-day__tooltip-empty">Kh?ng c? chi</span>
+                                      <span className="calendar-day__tooltip-empty">Không có khoản chi</span>
                                     )}
                                   </div>
                                 </>
                               ) : (
-                                <span className="calendar-day__tooltip-empty">Kh?ng c? giao d?ch</span>
+                                <span className="calendar-day__tooltip-empty">Không có giao dịch</span>
                               )}
                             </div>
                           </div>
