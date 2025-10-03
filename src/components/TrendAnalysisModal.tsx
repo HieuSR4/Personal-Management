@@ -306,9 +306,9 @@ export function TrendAnalysisModal({ transactions, onClose }: TrendAnalysisModal
       )}
 
       <div className="form-actions">
-        <button type="button" onClick={onClose}>
+        {/* <button type="button" onClick={onClose}>
           Đóng
-        </button>
+        </button> */}
       </div>
     </div>
   )

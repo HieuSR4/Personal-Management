@@ -1,4 +1,17 @@
 import type { ReactNode } from 'react'
+import {
+  Area,
+  CartesianGrid,
+  Line,
+  LineChart,
+  ResponsiveContainer,
+  Tooltip,
+  XAxis,
+  YAxis,
+  type DotProps,
+  type TooltipProps,
+} from 'recharts'
+import type { NameType, ValueType } from 'recharts/types/component/DefaultTooltipContent'
 
 export type TrendPoint = {
   label: string
@@ -12,8 +25,12 @@ type TrendChartProps = {
   height?: number
 }
 
-const SVG_WIDTH = 960
+type ChartDatum = TrendPoint & {
+  index: number
+}
+
 const DEFAULT_HEIGHT = 360
+const TICK_COUNT = 4
 
 function niceMax(value: number) {
   if (!Number.isFinite(value) || value <= 0) return 1
@@ -31,7 +48,7 @@ function formatTick(value: number) {
   if (!Number.isFinite(value)) return '0'
   if (value === 0) return '0'
   if (value >= 1_000_000_000) {
-    return `${Number(value / 1_000_000_000).toFixed(value % 1_000_000_000 === 0 ? 0 : 1)} tỷ`
+    return `${Number(value / 1_000_000_000).toFixed(value % 1_000_000_000 === 0 ? 0 : 1)} tỉ`
   }
   if (value >= 1_000_000) {
     return `${Number(value / 1_000_000).toFixed(value % 1_000_000 === 0 ? 0 : 1)} triệu`
@@ -42,150 +59,106 @@ function formatTick(value: number) {
   return value.toLocaleString('vi-VN')
 }
 
+const CustomTooltip = ({ active, payload }: TooltipProps<ValueType, NameType>) => {
+  if (!active || !payload || payload.length === 0) return null
+  const datum = payload[0]?.payload as ChartDatum | undefined
+  if (!datum) return null
+  return (
+    <div className="trend-tooltip">
+      <span className="trend-tooltip__label">{datum.label}</span>
+      <strong className="trend-tooltip__value">{datum.value.toLocaleString('vi-VN')} VND</strong>
+    </div>
+  )
+}
+
+function renderDot(lastIndex: number) {
+  return (props: DotProps) => {
+    const { cx, cy } = props
+    const payload = (props as any).payload
+    const datum = payload as ChartDatum
+    const isLast = datum && datum.index === lastIndex
+    // Always return a valid SVG element, even if cx/cy/payload are invalid
+    return (
+      <g>
+        {typeof cx === 'number' && typeof cy === 'number' && payload ? (
+          <>
+            <circle
+              cx={cx}
+              cy={cy}
+              r={isLast ? 8 : 6}
+              fill={isLast ? '#38bdf8' : '#6366f1'}
+              stroke="#0f172a"
+              strokeWidth={isLast ? 3 : 2}
+            />
+            {datum.annotation}
+          </>
+        ) : (
+          <circle cx={0} cy={0} r={0} fill="none" />
+        )}
+      </g>
+    )
+  }
+}
+
 export function TrendChart({ points, height = DEFAULT_HEIGHT }: TrendChartProps) {
   if (!points.length) return null
 
-  const padding = { top: 48, right: 56, bottom: 96, left: 110 }
-  const chartHeight = height - padding.top - padding.bottom
-  const chartWidth = SVG_WIDTH - padding.left - padding.right
-  const values = points.map((point) => point.value)
-  const maxValue = Math.max(...values, 0)
+  const data: ChartDatum[] = points.map((point, index) => ({ ...point, index }))
+  const maxValue = Math.max(...data.map((point) => point.value), 0)
   const yMax = niceMax(maxValue || 1)
-  const baseLineY = padding.top + chartHeight
-  const stepX = points.length > 1 ? chartWidth / (points.length - 1) : 0
-
-  const xPositions = points.map((_, index) =>
-    points.length > 1 ? padding.left + stepX * index : padding.left + chartWidth / 2,
-  )
-
-  const yScale = (value: number) => {
-    if (!Number.isFinite(value) || yMax === 0) return baseLineY
-    return padding.top + chartHeight - (value / yMax) * chartHeight
-  }
-
-  const tickCount = 4
-  const ticks = Array.from({ length: tickCount + 1 }, (_, index) => {
-    const value = (yMax / tickCount) * index
-    return { value, y: yScale(value) }
-  })
-
-  const labelEvery = points.length > 9 ? Math.ceil(points.length / 9) : 1
-  const lastIndex = points.length - 1
-
-  const linePath = points
-    .map((point, index) => {
-      const x = xPositions[index]
-      const y = yScale(point.value)
-      return `${index === 0 ? 'M' : 'L'} ${x} ${y}`
-    })
-    .join(' ')
-
-  const areaPath =
-    points.length > 1
-      ? `${linePath} L ${xPositions[lastIndex]} ${baseLineY} L ${xPositions[0]} ${baseLineY} Z`
-      : `M ${padding.left} ${baseLineY} L ${xPositions[0]} ${yScale(points[0].value)} L ${padding.left + chartWidth} ${baseLineY} Z`
+  const ticks = Array.from({ length: TICK_COUNT + 1 }, (_, index) => (yMax / TICK_COUNT) * index)
+  const labelInterval = points.length > 9 ? Math.ceil(points.length / 9) - 1 : 0
+  const lastIndex = data.length - 1
 
   return (
-    <svg
-      viewBox={`0 0 ${SVG_WIDTH} ${height}`}
-      className="trend-chart"
-      role="img"
-      aria-label="Biểu đồ xu hướng chi tiêu"
-    >
-      <defs>
-        <linearGradient id="trendAreaGradient" x1="0" y1="0" x2="0" y2="1">
-          <stop offset="0%" stopColor="#6366f1" stopOpacity="0.35" />
-          <stop offset="100%" stopColor="#6366f1" stopOpacity="0" />
-        </linearGradient>
-        <linearGradient id="trendLineGradient" x1="0" y1="0" x2="1" y2="0">
-          <stop offset="0%" stopColor="#818cf8" />
-          <stop offset="100%" stopColor="#22d3ee" />
-        </linearGradient>
-      </defs>
+    <div style={{ width: '100%', height }}>
+      <ResponsiveContainer width="100%" height="100%">
+        <LineChart data={data} margin={{ top: 24, right: 32, bottom: 32, left: 8 }} className="trend-chart">
+          <defs>
+            <linearGradient id="trendAreaGradient" x1="0" y1="0" x2="0" y2="1">
+              <stop offset="0%" stopColor="#6366f1" stopOpacity={0.35} />
+              <stop offset="100%" stopColor="#6366f1" stopOpacity={0} />
+            </linearGradient>
+            <linearGradient id="trendLineGradient" x1="0" y1="0" x2="1" y2="0">
+              <stop offset="0%" stopColor="#818cf8" />
+              <stop offset="100%" stopColor="#22d3ee" />
+            </linearGradient>
+          </defs>
 
-      <rect
-        x={padding.left}
-        y={padding.top}
-        width={chartWidth}
-        height={chartHeight}
-        fill="rgba(15, 23, 42, 0.55)"
-        stroke="rgba(148, 163, 184, 0.18)"
-        strokeWidth={1}
-        rx={18}
-      />
-
-      {ticks.map((tick, index) => (
-        <g key={`tick-${tick.value}`}> 
-          <line
-            x1={padding.left}
-            x2={padding.left + chartWidth}
-            y1={tick.y}
-            y2={tick.y}
-            stroke={index === tickCount ? 'rgba(148, 163, 184, 0.35)' : 'rgba(148, 163, 184, 0.16)'}
-            strokeDasharray={index === tickCount ? undefined : '4 10'}
+          <CartesianGrid strokeDasharray="4 12" stroke="rgba(148, 163, 184, 0.16)" vertical={false} />
+          <XAxis
+            dataKey="label"
+            interval={labelInterval}
+            tick={{ fill: '#94a3b8', fontSize: 14, fontWeight: 600 }}
+            tickMargin={16}
+            axisLine={false}
+            tickLine={false}
           />
-          <text
-            x={padding.left - 18}
-            y={tick.y}
-            textAnchor="end"
-            alignmentBaseline="middle"
-            style={{ fill: '#94a3b8', fontSize: 26, fontWeight: 600 }}
-          >
-            {formatTick(tick.value)}
-          </text>
-        </g>
-      ))}
-
-      {points.length > 1 && (
-        <path d={areaPath} fill="url(#trendAreaGradient)" opacity={0.9} />
-      )}
-      {points.length > 1 && (
-        <path
-          d={linePath}
-          fill="none"
-          stroke="url(#trendLineGradient)"
-          strokeWidth={6}
-          strokeLinejoin="round"
-          strokeLinecap="round"
-        />
-      )}
-
-      {points.map((point, index) => {
-        const x = xPositions[index]
-        const y = yScale(point.value)
-        const isLast = index === lastIndex
-        return (
-          <g key={point.label}>
-            <circle
-              cx={x}
-              cy={y}
-              r={isLast ? 10 : 8}
-              fill={isLast ? '#38bdf8' : '#6366f1'}
-              stroke="#0f172a"
-              strokeWidth={isLast ? 4 : 3}
-            >
-              <title>{`${point.label}: ${point.value.toLocaleString('vi-VN')} VND`}</title>
-            </circle>
-            {point.annotation}
-          </g>
-        )
-      })}
-
-      {points.map((point, index) => {
-        if (index % labelEvery !== 0) return null
-        const x = xPositions[index]
-        return (
-          <text
-            key={`xlabel-${point.label}`}
-            x={x}
-            y={baseLineY + 40}
-            textAnchor="middle"
-            style={{ fill: '#94a3b8', fontSize: 26, fontWeight: 600 }}
-          >
-            {point.label}
-          </text>
-        )
-      })}
-    </svg>
+          <YAxis
+            ticks={ticks}
+            domain={[0, yMax]}
+            axisLine={false}
+            tickLine={false}
+            tickFormatter={formatTick}
+            width={90}
+            tick={{ fill: '#94a3b8', fontSize: 14, fontWeight: 600 }}
+          />
+          <Tooltip
+            content={CustomTooltip}
+            cursor={{ stroke: 'rgba(148, 163, 184, 0.35)', strokeDasharray: '4 8' }}
+          />
+          <Area type="monotone" dataKey="value" stroke="none" fill="url(#trendAreaGradient)" />
+          <Line
+            type="monotone"
+            dataKey="value"
+            stroke="url(#trendLineGradient)"
+            strokeWidth={4}
+            dot={renderDot(lastIndex)}
+            activeDot={{ r: 9 }}
+            isAnimationActive
+          />
+        </LineChart>
+      </ResponsiveContainer>
+    </div>
   )
 }

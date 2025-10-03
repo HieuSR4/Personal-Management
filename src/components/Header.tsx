@@ -11,7 +11,7 @@ const routes = [
 
 export function Header() {
   const { user, signIn, signOutUser, loading } = useAuth()
-  const appIcon = new URL('../../res/img/icon.svg', import.meta.url).href
+  const appIcon = new URL('../../res/img/fav-icon.png', import.meta.url).href
   const [navOpen, setNavOpen] = useState(false)
   const location = useLocation()
 

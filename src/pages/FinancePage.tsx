@@ -14,8 +14,10 @@ import { saveTask, saveTransaction } from '../services/saveService'
 import type { Budget, MoneySource, Transaction, TransactionType } from '../types'
 import { useAuth } from '../contexts/AuthContext'
 import { DonutChart } from '../components/DonutChart'
-import { BarChart } from '../components/BarChart'
 import { TrendAnalysisModal } from '../components/TrendAnalysisModal'
+import { LineChart, Line, ResponsiveContainer, XAxis, YAxis, CartesianGrid, Tooltip, Legend } from 'recharts'
+import type { TooltipProps } from 'recharts'
+import type { ValueType, NameType } from 'recharts/types/component/DefaultTooltipContent'
 import { combineDateWithCurrentTime } from '../utils/date.ts'
 import { normalizeCategoryName } from '../utils/transactions.ts'
 
@@ -62,6 +64,8 @@ function colorForCategory(label: string) {
 
 const monthLabelFormatter = new Intl.DateTimeFormat('vi-VN', { month: 'long', year: 'numeric' })
 
+const WEEKDAY_LABELS = ['CN', 'T2', 'T3', 'T4', 'T5', 'T6', 'T7'] as const
+
 const INTERNAL_TRANSFER_CATEGORY = 'Rút tiền'
 const INTERNAL_TRANSFER_SOURCE_KEYS = new Set(['binance'])
 
@@ -78,6 +82,73 @@ type BudgetProgress = Budget & {
   status: 'ok' | 'warning' | 'danger' | 'no-limit'
   remaining: number
   overspent: number
+}
+
+type CalendarCell = {
+  date: Date | null
+  key: string
+}
+
+type DailySummaryDetail = {
+  label: string
+  amount: number
+}
+
+type DailySummaryPoint = {
+  day: number
+  label: string
+  fullLabel: string
+  dateKey: string
+  income: number
+  expense: number
+  incomeDetails: DailySummaryDetail[]
+  expenseDetails: DailySummaryDetail[]
+}
+
+const MAX_TOOLTIP_ITEMS = 3
+
+function renderDetailRows(details: DailySummaryDetail[], variant: 'income' | 'expense') {
+  const slice = details.slice(0, MAX_TOOLTIP_ITEMS)
+  const extra = details.length - slice.length
+  if (slice.length === 0) return null
+  return (
+    <ul className={`summary-tooltip__list summary-tooltip__list--${variant}`} key={`${variant}-list`}>
+      {slice.map((detail, index) => (
+        <li key={`${variant}-${detail.label}-${index}`} className={`summary-tooltip__item summary-tooltip__item--${variant}`}>
+          <span className="summary-tooltip__item-label">{detail.label}:</span>
+          <span className="summary-tooltip__item-value">{detail.amount.toLocaleString('vi-VN')} VND</span>
+        </li>
+      ))}
+      {extra > 0 && <li className="summary-tooltip__more">+{extra} mục khác</li>}
+    </ul>
+  )
+}
+
+function MonthlySummaryTooltip({ active, payload }: TooltipProps<ValueType, NameType>) {
+  if (!active || !payload || payload.length === 0) return null
+  const datum = payload[0]?.payload as DailySummaryPoint | undefined
+  if (!datum) return null
+  const hasIncome = datum.income > 0
+  const hasExpense = datum.expense > 0
+  return (
+    <div className="summary-tooltip">
+      <span className="summary-tooltip__date">{datum.fullLabel}</span>
+      <div className="summary-tooltip__section">
+        <span className="summary-tooltip__label summary-tooltip__label--income">Thu</span>
+        <span className="summary-tooltip__value summary-tooltip__value--income">
+          {datum.income > 0 ? `+${datum.income.toLocaleString('vi-VN')} VND` : '0'}
+        </span>
+      </div>
+      {hasIncome && renderDetailRows(datum.incomeDetails, 'income')}
+      <div className="summary-tooltip__section">
+        <span className="summary-tooltip__label summary-tooltip__label--expense">Chi</span>
+        <span className="summary-tooltip__value summary-tooltip__value--expense">
+          {datum.expense > 0 ? `-${datum.expense.toLocaleString('vi-VN')} VND` : '0'}
+        </span>
+      </div>
+      {hasExpense && renderDetailRows(datum.expenseDetails, 'expense')}
+    </div>
+  )
 }
 
 function isInternalTransferExpense(transaction: Transaction) {
@@ -110,6 +181,13 @@ function formatBudgetMonthLabel(month: string) {
 
 function getDefaultBudgetMonth() {
   return toMonthKey(new Date())
+}
+
+function formatDateKey(date: Date) {
+  const year = date.getFullYear()
+  const month = String(date.getMonth() + 1).padStart(2, '0')
+  const day = String(date.getDate()).padStart(2, '0')
+  return `${year}-${month}-${day}`
 }
 
 function parseMonthKey(month: string) {
@@ -178,7 +256,17 @@ export function FinancePage() {
   const [editingId, setEditingId] = useState<string | null>(null)
   const [showForm, setShowForm] = useState(false)
   const [showTransferModal, setShowTransferModal] = useState(false)
-  const [analysisModal, setAnalysisModal] = useState<null | 'trend' | 'compare' | 'top' | 'summary'>(null)
+  const [analysisModal, setAnalysisModal] = useState<null | 'top' | 'summary'>(null)
+  const [showTrendDropdown, setShowTrendDropdown] = useState(false)
+  const [showCalendarDropdown, setShowCalendarDropdown] = useState(false)
+  const trendDropdownRef = useRef<HTMLDivElement | null>(null)
+  const trendDropdownButtonRef = useRef<HTMLButtonElement | null>(null)
+  const calendarDropdownRef = useRef<HTMLDivElement | null>(null)
+  const calendarDropdownButtonRef = useRef<HTMLButtonElement | null>(null)
+  const [calendarMonth, setCalendarMonth] = useState(() => {
+    const now = new Date()
+    return new Date(now.getFullYear(), now.getMonth(), 1)
+  })
   const [sourceInputs, setSourceInputs] = useState<Record<string, string>>({})
   const [sourceSaving, setSourceSaving] = useState<Record<string, boolean>>({})
   const [sourceExpanded, setSourceExpanded] = useState<Record<string, boolean>>({})
@@ -296,6 +384,137 @@ export function FinancePage() {
       if (fallback) setTransferTarget(fallback.key)
     }
   }, [sources, transferTarget])
+
+  useEffect(() => {
+    if (!showTrendDropdown && !showCalendarDropdown) return
+    const handleClick = (event: MouseEvent) => {
+      const target = event.target as Node
+      const isInsideTrend =
+        !!trendDropdownRef.current?.contains(target) ||
+        !!trendDropdownButtonRef.current?.contains(target)
+      const isInsideCalendar =
+        !!calendarDropdownRef.current?.contains(target) ||
+        !!calendarDropdownButtonRef.current?.contains(target)
+      if (isInsideTrend || isInsideCalendar) return
+      setShowTrendDropdown(false)
+      setShowCalendarDropdown(false)
+    }
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') {
+        setShowTrendDropdown(false)
+        setShowCalendarDropdown(false)
+      }
+    }
+    document.addEventListener('mousedown', handleClick)
+    document.addEventListener('keydown', handleKeyDown)
+    return () => {
+      document.removeEventListener('mousedown', handleClick)
+      document.removeEventListener('keydown', handleKeyDown)
+    }
+  }, [showTrendDropdown, showCalendarDropdown])
+
+  useEffect(() => {
+    if (analysisModal) {
+      setShowTrendDropdown(false)
+      setShowCalendarDropdown(false)
+    }
+  }, [analysisModal])
+
+  const calendarLabel = useMemo(() => monthLabelFormatter.format(calendarMonth), [calendarMonth])
+
+  const transactionsByDay = useMemo(() => {
+    const map = new Map<string, { income: number; expense: number; count: number }>()
+    transactions.forEach((transaction) => {
+      const created = new Date(transaction.createdAt)
+      if (Number.isNaN(created.getTime())) return
+      if (transaction.type !== 'income' && isInternalTransferExpense(transaction)) return
+      const key = formatDateKey(created)
+      const entry = map.get(key) ?? { income: 0, expense: 0, count: 0 }
+      if (transaction.type === 'income') entry.income += transaction.amount
+      else entry.expense += transaction.amount
+      entry.count += 1
+      map.set(key, entry)
+    })
+    return map
+  }, [transactions])
+
+  const calendarCells = useMemo<CalendarCell[]>(() => {
+    const year = calendarMonth.getFullYear()
+    const month = calendarMonth.getMonth()
+    const startDay = new Date(year, month, 1).getDay()
+    const daysInMonth = new Date(year, month + 1, 0).getDate()
+    const cells: CalendarCell[] = []
+    for (let index = 0; index < startDay; index += 1) {
+      cells.push({ date: null, key: `pad-${year}-${month}-prev-${index}` })
+    }
+    for (let day = 1; day <= daysInMonth; day += 1) {
+      cells.push({ date: new Date(year, month, day), key: `day-${year}-${month}-${day}` })
+    }
+    while (cells.length % 7 !== 0) {
+      const index = cells.length
+      cells.push({ date: null, key: `pad-${year}-${month}-post-${index}` })
+    }
+    return cells
+  }, [calendarMonth])
+
+  const monthlyLineData = useMemo<DailySummaryPoint[]>(() => {
+    const now = new Date()
+    const year = now.getFullYear()
+    const month = now.getMonth()
+    const monthStart = new Date(year, month, 1)
+    const monthEnd = new Date(year, month + 1, 0)
+    const daysInMonth = monthEnd.getDate()
+    const base: DailySummaryPoint[] = Array.from({ length: daysInMonth }, (_, index) => {
+      const day = index + 1
+      const date = new Date(year, month, day)
+      return {
+        day,
+        label: String(day).padStart(2, '0'),
+        fullLabel: `${String(day).padStart(2, '0')}/${String(month + 1).padStart(2, '0')}`,
+        dateKey: formatDateKey(date),
+        income: 0,
+        expense: 0,
+        incomeDetails: [],
+        expenseDetails: [],
+      }
+    })
+    transactions.forEach((transaction) => {
+      const created = new Date(transaction.createdAt)
+      if (Number.isNaN(created.getTime())) return
+      if (created < monthStart || created > monthEnd) return
+      const index = created.getDate() - 1
+      if (index < 0 || index >= base.length) return
+      const category = normalizeCategoryName(transaction.category || 'Khác') || 'Khác'
+      if (transaction.type === 'income') {
+        base[index].income += transaction.amount
+        base[index].incomeDetails.push({ label: category, amount: transaction.amount })
+      } else if (!isInternalTransferExpense(transaction)) {
+        base[index].expense += transaction.amount
+        base[index].expenseDetails.push({ label: category, amount: transaction.amount })
+      }
+    })
+    return base
+  }, [transactions])
+
+  const todayKey = formatDateKey(new Date())
+
+  const gotoPreviousMonth = useCallback(() => {
+    setCalendarMonth((prev) => new Date(prev.getFullYear(), prev.getMonth() - 1, 1))
+  }, [])
+
+  const gotoNextMonth = useCallback(() => {
+    setCalendarMonth((prev) => new Date(prev.getFullYear(), prev.getMonth() + 1, 1))
+  }, [])
+
+  const toggleTrendDropdown = useCallback(() => {
+    setShowCalendarDropdown(false)
+    setShowTrendDropdown((prev) => !prev)
+  }, [])
+
+  const toggleCalendarDropdown = useCallback(() => {
+    setShowTrendDropdown(false)
+    setShowCalendarDropdown((prev) => !prev)
+  }, [])
 
   const summary = useMemo(() => {
     return transactions.reduce(
@@ -1582,30 +1801,123 @@ export function FinancePage() {
         </div>
         <div className="chart-card">
           <h3>Tổng thu vs chi (tháng này)</h3>
-          {(() => {
-            const now = new Date()
-            const monthStart = new Date(now.getFullYear(), now.getMonth(), 1)
-            let income = 0
-            let expense = 0
-            transactions.forEach((t) => {
-              const d = new Date(t.createdAt)
-              if (d < monthStart) return
-              if (t.type === 'income') income += t.amount
-              else if (!isInternalTransferExpense(t)) expense += t.amount
-            })
-            const data = [
-              { label: 'Thu', value: income, color: '#22c55e' },
-              { label: 'Chi', value: expense, color: '#ef4444' },
-            ]
-            if (income === 0 && expense === 0) return <p>Chưa có dữ liệu trong tháng này.</p>
-            return <BarChart data={data} />
-          })()}
+          {monthlyLineData.every((point) => point.income === 0 && point.expense === 0) ? (
+            <p>Chưa có dữ liệu trong tháng này.</p>
+          ) : (
+            <div className="line-chart-container">
+              <ResponsiveContainer width="100%" height="100%">
+                <LineChart data={monthlyLineData} margin={{ top: 20, right: 24, bottom: 20, left: 12 }}>
+                  <CartesianGrid strokeDasharray="4 8" stroke="rgba(148, 163, 184, 0.16)" vertical={false} />
+                  <XAxis
+                    dataKey="label"
+                    tick={{ fill: '#94a3b8', fontSize: 12, fontWeight: 600 }}
+                    tickMargin={12}
+                    axisLine={false}
+                    tickLine={false}
+                  />
+                  <YAxis
+                    axisLine={false}
+                    tickLine={false}
+                    tickFormatter={(value) => (value ? value.toLocaleString('vi-VN') : '0')}
+                    width={90}
+                    tick={{ fill: '#94a3b8', fontSize: 12, fontWeight: 600 }}
+                  />
+                  <Tooltip content={<MonthlySummaryTooltip />} cursor={{ stroke: 'rgba(148, 163, 184, 0.35)', strokeDasharray: '4 6' }} />
+                  <Legend align="right" verticalAlign="top" iconType="circle" wrapperStyle={{ color: '#94a3b8', fontSize: '0.85rem' }} />
+                  <Line type="monotone" dataKey="income" name="Thu" stroke="#22c55e" strokeWidth={3} dot={{ r: 4 }} activeDot={{ r: 6 }} />
+                  <Line type="monotone" dataKey="expense" name="Chi" stroke="#ef4444" strokeWidth={3} dot={{ r: 4 }} activeDot={{ r: 6 }} />
+                </LineChart>
+              </ResponsiveContainer>
+            </div>
+          )}
         </div>
         {/* Actions row spanning full width under charts */}
         <div className="chart-actions-row" style={{ gridColumn: '1 / -1' }}>
           <div className="chart-actions">
-            <button type="button" className="icon-btn" title="Biểu đồ xu hướng chi tiêu" onClick={() => setAnalysisModal('trend')}>Biểu đồ xu hướng chi tiêu</button>
-            <button type="button" className="icon-btn" title="So sánh chi tiêu" onClick={() => setAnalysisModal('compare')}>So sánh chi tiêu</button>
+            <div className="chart-action-with-dropdown">
+              <button
+                type="button"
+                className="icon-btn"
+                title="Biểu đồ xu hướng chi tiêu"
+                onClick={toggleTrendDropdown}
+                aria-expanded={showTrendDropdown}
+                aria-haspopup="dialog"
+                ref={trendDropdownButtonRef}
+              >
+                Biểu đồ xu hướng chi tiêu
+              </button>
+              {showTrendDropdown && (
+                <div className="chart-dropdown" ref={trendDropdownRef}>
+                  <TrendAnalysisModal transactions={transactions} onClose={() => setShowTrendDropdown(false)} />
+                </div>
+              )}
+            </div>
+            <div className="chart-action-with-dropdown">
+              <button
+                type="button"
+                className="icon-btn"
+                title="Lịch"
+                onClick={toggleCalendarDropdown}
+                aria-expanded={showCalendarDropdown}
+                aria-haspopup="dialog"
+                ref={calendarDropdownButtonRef}
+              >
+                Lịch
+              </button>
+              {showCalendarDropdown && (
+                <div className="chart-dropdown calendar-dropdown-panel" ref={calendarDropdownRef}>
+                  <div className="calendar-dropdown">
+                    <div className="calendar-header">
+                      <button type="button" className="calendar-nav-btn" onClick={gotoPreviousMonth} aria-label="Tháng trước">
+                        ‹
+                      </button>
+                      <span className="calendar-title">{calendarLabel}</span>
+                      <button type="button" className="calendar-nav-btn" onClick={gotoNextMonth} aria-label="Tháng sau">
+                        ›
+                      </button>
+                    </div>
+                    <div className="calendar-grid">
+                      {WEEKDAY_LABELS.map((weekday) => (
+                        <span key={`weekday-${weekday}`} className="calendar-grid__weekday">
+                          {weekday}
+                        </span>
+                      ))}
+                      {calendarCells.map((cell) => {
+                        if (!cell.date) {
+                          return <span key={cell.key} className="calendar-day calendar-day--empty" />
+                        }
+                        const dayKey = formatDateKey(cell.date)
+                        const entry = transactionsByDay.get(dayKey)
+                        const income = entry?.income ?? 0
+                        const expense = entry?.expense ?? 0
+                        const count = entry?.count ?? 0
+                        const hasData = income > 0 || expense > 0
+                        const isToday = dayKey === todayKey
+                        const classNames = ['calendar-day']
+                        if (isToday) classNames.push('calendar-day--today')
+                        if (hasData) classNames.push('calendar-day--has-data')
+                        return (
+                          <div key={cell.key} className={classNames.join(' ')} title={hasData ? `${income > 0 ? `+${income.toLocaleString('vi-VN')} VND` : ''}${income > 0 && expense > 0 ? ' | ' : ''}${expense > 0 ? `-${expense.toLocaleString('vi-VN')} VND` : ''}` : undefined}>
+                            <div className="calendar-day__top">
+                              <span className="calendar-day__number">{cell.date.getDate()}</span>
+                              {count > 0 && <span className="calendar-day__badge">{count}</span>}
+                            </div>
+                            <div className="calendar-day__values">
+                              {income > 0 && (
+                                <span className="calendar-day__value calendar-day__value--positive">+{income.toLocaleString('vi-VN')}</span>
+                              )}
+                              {expense > 0 && (
+                                <span className="calendar-day__value calendar-day__value--negative">-{expense.toLocaleString('vi-VN')}</span>
+                              )}
+                            </div>
+                          </div>
+                        )
+                      })}
+                    </div>
+                  </div>
+                </div>
+              )}
+            </div>
             <button type="button" className="icon-btn" title="Top danh mục chi tiêu" onClick={() => setAnalysisModal('top')}>Top danh mục chi tiêu</button>
             <button type="button" className="icon-btn" title="Báo cáo tổng quan định kỳ" onClick={() => setAnalysisModal('summary')}>Báo cáo tổng quan định kỳ</button>
           </div>
@@ -1615,12 +1927,8 @@ export function FinancePage() {
       {analysisModal && (
         <div className="modal-overlay" onClick={() => setAnalysisModal(null)}>
           <div className="modal" onClick={(e) => e.stopPropagation()}>
-                {analysisModal === 'trend' ? (
-              <TrendAnalysisModal transactions={transactions} onClose={() => setAnalysisModal(null)} />
-            ) : (
               <div className="form" style={{ gap: 16 }}>
                 <h3>
-                  {analysisModal === 'compare' && 'So sánh chi tiêu'}
                   {analysisModal === 'top' && 'Top danh mục chi tiêu'}
                   {analysisModal === 'summary' && 'Báo cáo tổng quan định kỳ'}
                 </h3>
@@ -1629,7 +1937,6 @@ export function FinancePage() {
                   <button type="button" onClick={() => setAnalysisModal(null)}>Đóng</button>
                 </div>
               </div>
-              )}
           </div>
         </div>
       )}
