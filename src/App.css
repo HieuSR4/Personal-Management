@@ -1,5 +1,5 @@
 .app {
-  max-width: 1100px;
+  max-width: 90%;
   margin: 0 auto;
   padding: 24px;
   display: flex;
@@ -862,7 +862,7 @@ textarea {
 
 
 .app {
-  max-width: 1100px;
+  max-width: 90%px;
   margin: 0 auto;
   padding: 24px;
   display: flex;
