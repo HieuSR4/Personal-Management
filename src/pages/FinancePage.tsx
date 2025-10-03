@@ -69,6 +69,33 @@ const WEEKDAY_LABELS = ['CN', 'T2', 'T3', 'T4', 'T5', 'T6', 'T7'] as const
 const INTERNAL_TRANSFER_CATEGORY = 'Rút tiền'
 const INTERNAL_TRANSFER_SOURCE_KEYS = new Set(['binance'])
 
+const DEPOSIT_CATEGORY_LABEL = 'Nạp tiền'
+const BINANCE_WITHDRAW_DISPLAY_CATEGORY = 'Rút tiền từ Binance'
+const VIETINBANK_SOURCE_KEY = 'vietinbank'
+const BINANCE_SOURCE_KEY = 'binance'
+
+function normalizeForComparison(value: string) {
+  return value.normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase()
+}
+
+const NORMALIZED_DEPOSIT_CATEGORY = normalizeForComparison(DEPOSIT_CATEGORY_LABEL)
+
+function isBinanceTransferToVietinbankIncome(transaction: Transaction) {
+  if (transaction.type !== 'income') return false
+  const categoryName = normalizeCategoryName(transaction.category)
+  if (normalizeForComparison(categoryName) !== NORMALIZED_DEPOSIT_CATEGORY) return false
+  const sourceKey = transaction.source?.trim().toLowerCase()
+  if (sourceKey !== VIETINBANK_SOURCE_KEY) return false
+  const note = transaction.note?.toLowerCase() ?? ''
+  return note.includes(BINANCE_SOURCE_KEY)
+}
+
+function getDisplayCategory(transaction: Transaction) {
+  if (isBinanceTransferToVietinbankIncome(transaction)) return BINANCE_WITHDRAW_DISPLAY_CATEGORY
+  return normalizeCategoryName(transaction.category)
+}
+
+
 type BudgetFormState = {
   id: string | null
   category: string
@@ -446,7 +473,7 @@ export function FinancePage() {
       const entry = (
         map.get(key) ?? { income: 0, expense: 0, count: 0, incomeDetails: [], expenseDetails: [] }
       )
-      const categoryLabel = normalizeCategoryName(transaction.category || 'Kh?c') || 'Kh?c'
+      const categoryLabel = getDisplayCategory(transaction) || 'Kh?c'
       if (transaction.type === 'income') {
         entry.income += transaction.amount
         appendDetail(entry.incomeDetails, categoryLabel, transaction.amount)
@@ -507,7 +534,7 @@ export function FinancePage() {
       if (created < monthStart || created > monthEnd) return
       const index = created.getDate() - 1
       if (index < 0 || index >= base.length) return
-      const category = normalizeCategoryName(transaction.category || 'Khác') || 'Khác'
+      const category = getDisplayCategory(transaction) || 'Khác'
       if (transaction.type === 'income') {
         base[index].income += transaction.amount
         base[index].incomeDetails.push({ label: category, amount: transaction.amount })
@@ -616,7 +643,7 @@ export function FinancePage() {
   const transactionCategoryOptions = useMemo(() => {
     const categoriesInData = new Set<string>()
     transactions.forEach((transaction) => {
-      const categoryName = normalizeCategoryName(transaction.category)
+      const categoryName = getDisplayCategory(transaction)
       categoriesInData.add(categoryName)
     })
 
@@ -647,7 +674,7 @@ export function FinancePage() {
   const filteredTransactions = useMemo(() => {
     const matchesCategory = (transaction: Transaction) =>
       transactionCategoryFilter === 'all' ||
-      normalizeCategoryName(transaction.category) === transactionCategoryFilter
+      getDisplayCategory(transaction) === transactionCategoryFilter
 
     const matchesDate = (transaction: Transaction) => {
       if (!transactionDateFilter) return true
@@ -830,7 +857,7 @@ export function FinancePage() {
       await saveTransaction(user.uid, {
         amount,
         type: 'income',
-        category: 'Nạp tiền',
+        category: DEPOSIT_CATEGORY_LABEL,
         note: isBinance
           ? `Nạp ${formatUsdtAmount(usdtAmount)} USDT vào ${s.name}${usdtVndRate ? ` (tỷ giá ${usdtVndRate.toLocaleString('vi-VN', { maximumFractionDigits: 0 })} VND)` : ''}`
           : `Nạp vào ${s.name}`,
@@ -895,10 +922,12 @@ export function FinancePage() {
         date: today,
         source: 'Binance',
       })
+      const isVietinbankTarget = targetSource.key.trim().toLowerCase() === VIETINBANK_SOURCE_KEY
+      const receiveCategory = isVietinbankTarget ? BINANCE_WITHDRAW_DISPLAY_CATEGORY : DEPOSIT_CATEGORY_LABEL
       await saveTransaction(user.uid, {
         amount,
         type: 'income',
-        category: 'Nạp tiền',
+        category: receiveCategory,
         note: receiveNote,
         date: today,
         source: targetSource.key,
@@ -2207,7 +2236,7 @@ export function FinancePage() {
             {filteredTransactions.map((transaction) => (
               <li key={transaction.id} className={`item ${transaction.type}`}>
                 <div>
-                  <strong>{transaction.category}</strong>
+                  <strong>{getDisplayCategory(transaction)}</strong>
                   <div className="note-line">
                     {transaction.note && <span>{transaction.note} - </span>}
                     <time dateTime={transaction.createdAt}>
