@@ -697,7 +697,7 @@ textarea {
 /* Charts */
 .charts-grid {
   display: grid;
-  grid-template-columns: minmax(280px, 0.85fr) minmax(360px, 1.65fr);
+  grid-template-columns: minmax(0, 1fr);
   gap: 18px;
 }
 
@@ -707,15 +707,11 @@ textarea {
   font-weight: 700;
 }
 
-@media (max-width: 720px) {
-  .charts-grid {
-    grid-template-columns: 1fr;
-  }
-}
 
 .chart-flex {
   display: flex;
-  align-items: center;
+  flex-direction: column;
+  align-items: stretch;
   gap: 16px;
 }
 
@@ -726,6 +722,7 @@ textarea {
   display: flex;
   flex-direction: column;
   gap: 6px;
+  width: 100%;
 }
 
 .chart-legend li {
@@ -819,6 +816,15 @@ textarea {
 @media (max-width: 640px) {
   .chart-action-with-dropdown {
     width: 100%;
+    display: flex;
+    flex-direction: column;
+    align-items: stretch;
+    gap: 12px;
+  }
+
+  .chart-action-with-dropdown .icon-btn {
+    width: 100%;
+    justify-content: center;
   }
 
   .chart-dropdown {
@@ -826,6 +832,7 @@ textarea {
     width: 100%;
     max-width: none;
     margin-top: 12px;
+    padding: 16px;
     box-shadow: none;
   }
 
@@ -835,6 +842,10 @@ textarea {
 
   .chart-dropdown::before {
     display: none;
+  }
+
+  .chart-dropdown .trend-analysis {
+    max-height: none;
   }
 }
 
@@ -1417,7 +1428,7 @@ textarea {
 /* Charts */
 .charts-grid {
   display: grid;
-  grid-template-columns: minmax(280px, 0.85fr) minmax(360px, 1.65fr);
+  grid-template-columns: minmax(0, 1fr);
   gap: 18px;
 }
 
@@ -1430,7 +1441,8 @@ textarea {
 .chart-flex {
   display: flex;
   flex-direction: column;
-  gap: 6px;
+  align-items: stretch;
+  gap: 16px;
 }
 
 .chart-legend li {
@@ -1469,6 +1481,21 @@ textarea {
 
 .negative {
   color: #dc2626;
+}
+
+@media (min-width: 860px) {
+  .charts-grid {
+    grid-template-columns: minmax(0, 0.9fr) minmax(0, 1.1fr);
+  }
+
+  .chart-flex {
+    flex-direction: row;
+    align-items: center;
+  }
+
+  .chart-legend {
+    width: auto;
+  }
 }
 
 /* Actions under charts */
@@ -2472,15 +2499,60 @@ textarea {
 @media (max-width: 640px) {
   .trend-analysis__header {
     flex-direction: column;
+    gap: 16px;
+  }
+
+  .trend-analysis__header p {
+    max-width: none;
   }
 
   .trend-analysis__filters {
     width: 100%;
+    gap: 12px;
   }
 
   .trend-analysis__filters label,
   .trend-analysis__filters select {
     width: 100%;
+  }
+
+  .trend-analysis__chart {
+    padding: 14px 14px 20px;
+  }
+
+  .trend-analysis__summary {
+    grid-template-columns: 1fr;
+  }
+
+  .trend-analysis__insights {
+    padding: 16px 18px;
+  }
+
+  .calendar-dropdown {
+    gap: 16px;
+  }
+
+  .calendar-header {
+    justify-content: center;
+    flex-wrap: wrap;
+    gap: 8px;
+  }
+
+  .calendar-title {
+    text-align: center;
+  }
+
+  .calendar-grid {
+    gap: 4px;
+  }
+
+  .calendar-day {
+    min-height: 72px;
+    padding: 6px;
+  }
+
+  .calendar-day__values {
+    font-size: 0.7rem;
   }
 }
 
@@ -3328,6 +3400,7 @@ textarea {
   .login-hero { order: 1; }
   .login-card { order: 2; }
 }
+
 
 
 
