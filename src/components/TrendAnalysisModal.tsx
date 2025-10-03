@@ -149,7 +149,7 @@ type TrendAnalysisModalProps = {
   onClose: () => void
 }
 
-export function TrendAnalysisModal({ transactions, onClose }: TrendAnalysisModalProps) {
+export function TrendAnalysisModal({ transactions }: TrendAnalysisModalProps) {
   const [range, setRange] = useState<TrendRangeKey>('6m')
 
   const trend = useMemo(() => computeMonthlyTrend(transactions, range), [transactions, range])
@@ -305,11 +305,6 @@ export function TrendAnalysisModal({ transactions, onClose }: TrendAnalysisModal
         </div>
       )}
 
-      <div className="form-actions">
-        {/* <button type="button" onClick={onClose}>
-          Đóng
-        </button> */}
-      </div>
     </div>
   )
 }
