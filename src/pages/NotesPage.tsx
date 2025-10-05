@@ -88,46 +88,46 @@ export function NotesPage() {
     <section className="page notes-page">
       <div className="page-header">
         <div>
-          <h2>Ghi chu ca nhan</h2>
-          <p>Luu tru nhung ghi chu quan trong cho ban.</p>
+          <h2>Ghi chú cá nhân</h2>
+          <p>Lưu trữ những ghi chú quan trọng cho bạn.</p>
         </div>
       </div>
 
       <form className="card form" onSubmit={handleSubmit}>
-        <h3>Tao ghi chu</h3>
+        <h3>Tạo ghi chú</h3>
         {error && <p className="form-error">{error}</p>}
         <label>
-          Tieu de
+          Tiêu đề
           <input
             type="text"
             value={formState.title}
             onChange={(event) =>
               setFormState((prev) => ({ ...prev, title: event.target.value }))
             }
-            placeholder="Vi du: Y tuong du an"
+            placeholder="Ví dụ: Ý tưởng dự án"
             required
           />
         </label>
         <label>
-          Noi dung
+          Nội dung
           <textarea
             value={formState.content}
             onChange={(event) =>
               setFormState((prev) => ({ ...prev, content: event.target.value }))
             }
             rows={4}
-            placeholder="Ghi chu cua ban..."
+            placeholder="Ghi chú của bạn..."
           />
         </label>
         <button type="submit" disabled={saving}>
-          {saving ? 'Dang luu...' : 'Tao ghi chu'}
+          {saving ? 'Đang lưu...' : 'Tạo ghi chú'}
         </button>
       </form>
 
       <div className="card list notes-list">
-        <h3>Ghi chu cua ban</h3>
+        <h3>Ghi chú của bạn</h3>
         {notes.length === 0 ? (
-          <p>Ban chua tao ghi chu nao.</p>
+          <p>Bạn chưa tạo ghi chú nào.</p>
         ) : (
           <ul>
             {notes.map((note) => {
@@ -150,10 +150,10 @@ export function NotesPage() {
                       />
                       <div className="note-actions">
                         <button type="button" onClick={() => saveEditing(note)}>
-                          Luu
+                          Lưu
                         </button>
                         <button type="button" onClick={cancelEditing}>
-                          Huy
+                          Hủy
                         </button>
                       </div>
                     </div>
@@ -162,16 +162,16 @@ export function NotesPage() {
                       <div className="note-header">
                         <strong>{note.title}</strong>
                         <time dateTime={note.updatedAt}>
-                          Cap nhat: {new Date(note.updatedAt).toLocaleString('vi-VN')}
+                          Cập nhật: {new Date(note.updatedAt).toLocaleString('vi-VN')}
                         </time>
                       </div>
-                      <p>{note.content || 'Chua co noi dung'}</p>
+                      <p>{note.content || 'Chưa có nội dung'}</p>
                       <div className="note-actions">
                         <button type="button" onClick={() => startEditing(note)}>
-                          Sua
+                          Sửa
                         </button>
                         <button type="button" onClick={() => handleDelete(note.id)}>
-                          Xoa
+                          Xóa
                         </button>
                       </div>
                     </div>
