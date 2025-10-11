@@ -4,6 +4,7 @@ import { deleteNote, subscribeToNotes, updateNote } from '../services/dataServic
 import { saveNote } from '../services/saveService'
 import type { Note } from '../types'
 import { useAuth } from '../contexts/AuthContext'
+import { RichTextEditor } from '../components/RichTextEditor'
 
 const defaultNote = {
   title: '',
@@ -14,6 +15,8 @@ type NoteDraft = {
   title: string
   content: string
 }
+
+const hasContent = (html: string) => html.replace(/<[^>]*>/g, '').trim().length > 0
 
 export function NotesPage() {
   const { user } = useAuth()
@@ -31,7 +34,7 @@ export function NotesPage() {
   const handleSubmit = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault()
     if (!user || !formState.title.trim()) {
-      setError('Ban can nhap tieu de ghi chu.')
+      setError('Bạn cần nhập tiêu đề ghi chú.')
       return
     }
 
@@ -45,7 +48,7 @@ export function NotesPage() {
       setFormState(defaultNote)
     } catch (err) {
       console.error(err)
-      setError('Khong the luu ghi chu. Vui long thu lai.')
+      setError('Không thể lưu ghi chú. Vui lòng thử lại.')
     } finally {
       setSaving(false)
     }
@@ -71,7 +74,7 @@ export function NotesPage() {
       cancelEditing()
     } catch (err) {
       console.error(err)
-      setError('Khong the cap nhat ghi chu.')
+      setError('Không thể cập nhật ghi chú.')
     }
   }
 
@@ -81,7 +84,7 @@ export function NotesPage() {
       await deleteNote(user.uid, id)
     } catch (err) {
       console.error(err)
-      setError('Khong the xoa ghi chu.')
+      setError('Không thể xóa ghi chú.')
     }
   }
   return (
@@ -108,15 +111,12 @@ export function NotesPage() {
             required
           />
         </label>
-        <label>
+        <label className="rich-text-editor__label">
           Nội dung
-          <textarea
+          <RichTextEditor
             value={formState.content}
-            onChange={(event) =>
-              setFormState((prev) => ({ ...prev, content: event.target.value }))
-            }
-            rows={4}
-            placeholder="Ghi chú của bạn..."
+            onChange={(value) => setFormState((prev) => ({ ...prev, content: value }))}
+            ariaLabel="Nội dung ghi chú"
           />
         </label>
         <button type="submit" disabled={saving}>
@@ -141,12 +141,11 @@ export function NotesPage() {
                         value={draft.title}
                         onChange={(event) => setDraft((prev) => ({ ...prev, title: event.target.value }))}
                       />
-                      <textarea
+                      <RichTextEditor
                         value={draft.content}
-                        onChange={(event) =>
-                          setDraft((prev) => ({ ...prev, content: event.target.value }))
-                        }
-                        rows={4}
+                        onChange={(value) => setDraft((prev) => ({ ...prev, content: value }))}
+                        placeholder="Cập nhật ghi chú của bạn..."
+                        ariaLabel="Chỉnh sửa nội dung ghi chú"
                       />
                       <div className="note-actions">
                         <button type="button" onClick={() => saveEditing(note)}>
@@ -165,7 +164,14 @@ export function NotesPage() {
                           Cập nhật: {new Date(note.updatedAt).toLocaleString('vi-VN')}
                         </time>
                       </div>
-                      <p>{note.content || 'Chưa có nội dung'}</p>
+                      {hasContent(note.content) ? (
+                        <div
+                          className="note-body"
+                          dangerouslySetInnerHTML={{ __html: note.content }}
+                        />
+                      ) : (
+                        <p>Chưa có nội dung</p>
+                      )}
                       <div className="note-actions">
                         <button type="button" onClick={() => startEditing(note)}>
                           Sửa
