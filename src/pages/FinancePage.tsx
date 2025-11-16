@@ -206,6 +206,19 @@ function formatBudgetMonthLabel(month: string) {
   return monthLabelFormatter.format(date)
 }
 
+function parseDateFilterValue(value: string) {
+  if (!value) return null
+  const [year, month, day] = value.split('-').map((part) => Number(part))
+  if (!year || !month || !day) return null
+  const date = new Date(year, month - 1, day)
+  if (Number.isNaN(date.getTime())) return null
+  return date
+}
+
+function toDayPrecision(date: Date) {
+  return new Date(date.getFullYear(), date.getMonth(), date.getDate())
+}
+
 function getDefaultBudgetMonth() {
   return toMonthKey(new Date())
 }
@@ -307,7 +320,8 @@ export function FinancePage() {
   const [transferSaving, setTransferSaving] = useState(false)
   const [transferError, setTransferError] = useState<string | null>(null)
   const [transactionCategoryFilter, setTransactionCategoryFilter] = useState<string>('all')
-  const [transactionDateFilter, setTransactionDateFilter] = useState<string>('')
+  const [transactionStartDateFilter, setTransactionStartDateFilter] = useState<string>('')
+  const [transactionEndDateFilter, setTransactionEndDateFilter] = useState<string>('')
   const isMountedRef = useRef(true)
 
   const fetchUsdtRate = useCallback(async () => {
@@ -671,51 +685,64 @@ export function FinancePage() {
     }
   }, [transactionCategoryFilter, transactionCategoryOptions])
 
+  const transactionDateRange = useMemo(() => {
+    const startDate = parseDateFilterValue(transactionStartDateFilter)
+    const endDate = parseDateFilterValue(transactionEndDateFilter)
+    let startDay = startDate ? toDayPrecision(startDate) : null
+    let endDay = endDate ? toDayPrecision(endDate) : null
+    if (startDay && endDay && startDay.getTime() > endDay.getTime()) {
+      const temp = startDay
+      startDay = endDay
+      endDay = temp
+    }
+    return { start: startDay, end: endDay }
+  }, [transactionStartDateFilter, transactionEndDateFilter])
+
+  const hasTransactionDateFilter = Boolean(transactionDateRange.start || transactionDateRange.end)
+
   const filteredTransactions = useMemo(() => {
     const matchesCategory = (transaction: Transaction) =>
       transactionCategoryFilter === 'all' ||
       getDisplayCategory(transaction) === transactionCategoryFilter
 
     const matchesDate = (transaction: Transaction) => {
-      if (!transactionDateFilter) return true
+      if (!hasTransactionDateFilter) return true
       const createdAt = transaction.createdAt
       if (!createdAt) return false
       const time = new Date(createdAt).getTime()
       if (Number.isNaN(time)) return false
-      const [year, month, day] = transactionDateFilter.split('-').map((part) => Number(part))
-      if (!year || !month || !day) return false
-      const filterDate = new Date(year, month - 1, day)
-      if (Number.isNaN(filterDate.getTime())) return false
-      const transactionDate = new Date(time)
-      return (
-        filterDate.getFullYear() === transactionDate.getFullYear() &&
-        filterDate.getMonth() === transactionDate.getMonth() &&
-        filterDate.getDate() === transactionDate.getDate()
-      )
+      const transactionDate = toDayPrecision(new Date(time))
+      if (transactionDateRange.start && transactionDate < transactionDateRange.start) return false
+      if (transactionDateRange.end && transactionDate > transactionDateRange.end) return false
+      return true
     }
 
     return sortedTransactions.filter(
       (transaction) => matchesCategory(transaction) && matchesDate(transaction),
     )
-  }, [sortedTransactions, transactionCategoryFilter, transactionDateFilter])
+  }, [sortedTransactions, transactionCategoryFilter, transactionDateRange, hasTransactionDateFilter])
 
   const filteredDateExpenseTotal = useMemo(() => {
-    if (!transactionDateFilter) return 0
+    if (!hasTransactionDateFilter) return 0
     return filteredTransactions.reduce((total, transaction) => {
       if (transaction.type !== 'expense') return total
       if (isInternalTransferExpense(transaction)) return total
       return total + transaction.amount
     }, 0)
-  }, [filteredTransactions, transactionDateFilter])
+  }, [filteredTransactions, hasTransactionDateFilter])
 
-  const formattedTransactionDateFilter = useMemo(() => {
-    if (!transactionDateFilter) return ''
-    const [year, month, day] = transactionDateFilter.split('-').map((part) => Number(part))
-    if (!year || !month || !day) return transactionDateFilter
-    const date = new Date(year, month - 1, day)
-    if (Number.isNaN(date.getTime())) return transactionDateFilter
-    return date.toLocaleDateString('vi-VN')
-  }, [transactionDateFilter])
+  const transactionDateRangeLabel = useMemo(() => {
+    if (!hasTransactionDateFilter) return ''
+    const formatter = (date: Date | null) => (date ? date.toLocaleDateString('vi-VN') : '')
+    if (transactionDateRange.start && transactionDateRange.end) {
+      const start = formatter(transactionDateRange.start)
+      const end = formatter(transactionDateRange.end)
+      return start === end ? start : `${start} \u0111\u1ebfn ${end}`
+    }
+    if (transactionDateRange.start) return `t\u1eeb ${formatter(transactionDateRange.start)}`
+    if (transactionDateRange.end) return `\u0111\u1ebfn ${formatter(transactionDateRange.end)}`
+    return ''
+  }, [transactionDateRange, hasTransactionDateFilter])
 
   const expensesByCategoryMonth = useMemo(() => {
     const totals = new Map<string, number>()
@@ -2188,9 +2215,9 @@ export function FinancePage() {
                 <span className="transaction-filter-caret" aria-hidden="true">▾</span>
               </div>
             </label>
-            <label className="transaction-filter-field" htmlFor="transaction-date-filter">
+            <label className="transaction-filter-field" htmlFor="transaction-date-start-filter">
               <span className="transaction-filter-label">Ngày</span>
-              <div className="transaction-filter-select-wrapper">
+              <div className="transaction-filter-select-wrapper transaction-filter-select-wrapper--range">
                 <span className="transaction-filter-icon" aria-hidden="true">
                   <svg width="18" height="18" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
                     <path
@@ -2199,21 +2226,35 @@ export function FinancePage() {
                     />
                   </svg>
                 </span>
-                <input
-                  id="transaction-date-filter"
-                  type="date"
-                  value={transactionDateFilter}
-                  onChange={(event) => setTransactionDateFilter(event.target.value)}
-                />
+                <div className="transaction-filter-range-inputs">
+                  <input
+                    id="transaction-date-start-filter"
+                    type="date"
+                    placeholder="nn/mm/yyyy"
+                    value={transactionStartDateFilter}
+                    onChange={(event) => setTransactionStartDateFilter(event.target.value)}
+                    aria-label="Ngày bắt đầu"
+                  />
+                  <span className="transaction-filter-range-separator">–</span>
+                  <input
+                    id="transaction-date-end-filter"
+                    type="date"
+                    placeholder="nn/mm/yyyy"
+                    value={transactionEndDateFilter}
+                    onChange={(event) => setTransactionEndDateFilter(event.target.value)}
+                    aria-label="Ngày kết thúc"
+                  />
+                </div>
               </div>
             </label>
-            {(transactionCategoryFilter !== 'all' || transactionDateFilter) && (
+            {(transactionCategoryFilter !== 'all' || hasTransactionDateFilter) && (
               <button
                 type="button"
                 className="transaction-filter-reset"
                 onClick={() => {
                   setTransactionCategoryFilter('all')
-                  setTransactionDateFilter('')
+                  setTransactionStartDateFilter('')
+                  setTransactionEndDateFilter('')
                 }}
               >
                 Xóa lọc
@@ -2221,9 +2262,9 @@ export function FinancePage() {
             )}
           </div>
         </div>
-        {transactionDateFilter && (
+        {hasTransactionDateFilter && (
           <div className="transaction-filter-summary" role="status">
-            Tổng chi tiêu ngày {formattedTransactionDateFilter}:{' '}
+            Tổng chi tiêu {transactionDateRangeLabel}:{' '}
             <strong>{filteredDateExpenseTotal.toLocaleString('vi-VN')} VND</strong>
           </div>
         )}
@@ -2279,4 +2320,3 @@ export function FinancePage() {
     </section>
   )
 }
-

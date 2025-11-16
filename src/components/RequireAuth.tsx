@@ -7,16 +7,16 @@ export function RequireAuth({ children }: { children: ReactNode }) {
   const { user, loading, firebaseReady, needsDeviceVerification } = useAuth()
 
   if (loading) {
-    return <div className="card">Dang tai thong tin nguoi dung...</div>
+    return <div className="card">Đang tải thông tin người dùng...</div>
   }
 
   if (!firebaseReady) {
     return (
       <div className="card auth-required">
-        <h2>Chua cau hinh Firebase</h2>
+        <h2>Chưa cấu hình Firebase</h2>
         <p>
-          Vui long cap nhat file <code>.env</code> voi thong tin Firebase cua ban theo huong dan trong
-          <code>README.md</code>, sau do khoi dong lai dev server.
+          Vui lòng cập nhật file <code>.env</code> với thông tin Firebase của bạn theo hướng dẫn trong
+          <code>README.md</code>, sau đó khởi động lại dev server.
         </p>
       </div>
     )

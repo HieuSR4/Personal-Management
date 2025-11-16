@@ -1851,6 +1851,33 @@ textarea {
   transition: border-color 0.2s ease, box-shadow 0.2s ease, transform 0.2s ease;
 }
 
+.transaction-filter-select-wrapper--range {
+  flex-wrap: wrap;
+  align-items: flex-start;
+}
+
+.transaction-filter-range-inputs {
+  flex: 1;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  align-items: center;
+  min-width: 0;
+}
+
+.transaction-filter-range-inputs input {
+  flex: 1;
+  min-width: 120px;
+}
+
+.transaction-filter-range-separator {
+  color: rgba(148, 163, 184, 0.9);
+  font-size: 0.85rem;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+}
+
 .transaction-filter-select-wrapper:focus-within {
   border-color: rgba(129, 140, 248, 0.8);
   box-shadow: 0 0 0 2px rgba(99, 102, 241, 0.35);
