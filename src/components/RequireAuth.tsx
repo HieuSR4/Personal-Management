@@ -1,9 +1,10 @@
 import type { ReactNode } from 'react'
 import { Navigate, useLocation } from 'react-router-dom'
 import { useAuth } from '../contexts/AuthContext'
+import { DeviceVerification } from './DeviceVerification'
 
 export function RequireAuth({ children }: { children: ReactNode }) {
-  const { user, loading, firebaseReady } = useAuth()
+  const { user, loading, firebaseReady, needsDeviceVerification } = useAuth()
 
   if (loading) {
     return <div className="card">Dang tai thong tin nguoi dung...</div>
@@ -24,6 +25,10 @@ export function RequireAuth({ children }: { children: ReactNode }) {
   if (!user) {
     const location = useLocation()
     return <Navigate to="/login" replace state={{ from: location }} />
+  }
+
+  if (needsDeviceVerification) {
+    return <DeviceVerification />
   }
 
   return <>{children}</>

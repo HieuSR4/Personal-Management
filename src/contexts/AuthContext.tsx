@@ -1,8 +1,10 @@
 ﻿import type { User } from 'firebase/auth'
 import { onAuthStateChanged, signInWithPopup, signOut } from 'firebase/auth'
 import type { ReactNode } from 'react'
-import { createContext, useContext, useEffect, useState } from 'react'
+import { createContext, useCallback, useContext, useEffect, useMemo, useState } from 'react'
 import { auth, googleProvider, isFirebaseConfigured } from '../lib/firebase'
+import { verifyAuthenticatorCode } from '../services/authenticator.ts'
+import { isDeviceTrusted, markDeviceTrusted, removeTrustedDevice } from '../utils/deviceTrust.ts'
 
 type AuthContextValue = {
   user: User | null
@@ -10,6 +12,11 @@ type AuthContextValue = {
   signIn: () => Promise<void>
   signOutUser: () => Promise<void>
   firebaseReady: boolean
+  deviceVerified: boolean
+  needsDeviceVerification: boolean
+  verifyingDevice: boolean
+  deviceError: string | null
+  verifyDeviceWithCode: (code: string) => Promise<boolean>
 }
 
 const AuthContext = createContext<AuthContextValue | undefined>(undefined)
@@ -17,6 +24,10 @@ const AuthContext = createContext<AuthContextValue | undefined>(undefined)
 export function AuthProvider({ children }: { children: ReactNode }) {
   const [user, setUser] = useState<User | null>(null)
   const [loading, setLoading] = useState(true)
+  const [deviceVerified, setDeviceVerified] = useState(false)
+  const [needsDeviceVerification, setNeedsDeviceVerification] = useState(false)
+  const [verifyingDevice, setVerifyingDevice] = useState(false)
+  const [deviceError, setDeviceError] = useState<string | null>(null)
   const firebaseReady = Boolean(isFirebaseConfigured && auth)
   const allowedDomains = (import.meta.env.VITE_ALLOWED_GOOGLE_DOMAINS || '')
     .split(',')
@@ -55,13 +66,21 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         return
       }
       setUser(firebaseUser)
+      if (firebaseUser) {
+        const trusted = isDeviceTrusted(firebaseUser.uid)
+        setDeviceVerified(trusted)
+        setNeedsDeviceVerification(!trusted)
+      } else {
+        setDeviceVerified(false)
+        setNeedsDeviceVerification(false)
+      }
       setLoading(false)
     })
 
     return () => unsubscribe()
   }, [firebaseReady])
 
-  const signIn = async () => {
+  const signIn = useCallback(async () => {
     if (!firebaseReady || !auth || !googleProvider) {
       console.warn('Firebase chua duoc cau hinh. Cap nhat .env de dang nhap.')
       return
@@ -74,15 +93,72 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       const msg = anyErr.message ?? ''
       console.error('Google sign-in failed:', code, msg)
     }
-  }
+  }, [firebaseReady])
 
-  const signOutUser = async () => {
+  const signOutUser = useCallback(async () => {
     if (!firebaseReady || !auth) return
     await signOut(auth)
-  }
+  if (user) {
+      removeTrustedDevice(user.uid)
+    }
+    setDeviceVerified(false)
+    setNeedsDeviceVerification(false)
+    setDeviceError(null)
+  }, [firebaseReady, user])
+
+  const verifyDeviceWithCode = useCallback(async (code: string) => {
+    if (!user) return false
+    setVerifyingDevice(true)
+    setDeviceError(null)
+    try {
+      const success = await verifyAuthenticatorCode({ code, userId: user.uid })
+      if (success) {
+        markDeviceTrusted(user.uid)
+        setDeviceVerified(true)
+        setNeedsDeviceVerification(false)
+        setDeviceError(null)
+      } else {
+        setDeviceError('Mã xác thực không hợp lệ. Vui lòng thử lại.')
+      }
+      return success
+    } catch (error) {
+      console.error('Device verification failed', error)
+      setDeviceError('Không thể xác thực thiết bị. Hãy thử lại sau.')
+      return false
+    } finally {
+      setVerifyingDevice(false)
+    }
+  }, [user])
+
+  const contextValue = useMemo(
+    () => ({
+      user,
+      loading,
+      signIn,
+      signOutUser,
+      firebaseReady,
+      deviceVerified,
+      needsDeviceVerification,
+      verifyingDevice,
+      deviceError,
+      verifyDeviceWithCode,
+    }),
+    [
+      user,
+      loading,
+      signIn,
+      signOutUser,
+      firebaseReady,
+      deviceVerified,
+      needsDeviceVerification,
+      verifyingDevice,
+      deviceError,
+      verifyDeviceWithCode,
+    ],
+  )
 
   return (
-    <AuthContext.Provider value={{ user, loading, signIn, signOutUser, firebaseReady }}>
+    <AuthContext.Provider value={contextValue}>
       {children}
     </AuthContext.Provider>
   )
