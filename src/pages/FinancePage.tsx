@@ -1479,14 +1479,9 @@ export function FinancePage() {
           <ul className="list-sources" style={{ listStyle: 'none', margin: 0, padding: 0, display: 'grid', gap: 12, gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))' }}>
             {sources.map((s) => {
               const bal = sourceBalances.get(s.key) ?? (s.initialBalance || 0)
-              const initial = Number(s.initialBalance || 0)
               const key = s.key as keyof typeof LOGOS
               const logo = LOGOS[key]
               const isBinance = s.key === 'Binance'
-              const deltaFromTransactions = bal - initial
-              const formattedDelta = isBinance
-                ? deltaFromTransactions.toLocaleString('vi-VN', { maximumFractionDigits: 5 })
-                : deltaFromTransactions.toLocaleString('vi-VN')
               const rawInput = sourceInputs[s.id] ?? ''
               const usdtInputAmount = isBinance ? parseUsdtAmount(rawInput) : 0
               const convertedPreview =
