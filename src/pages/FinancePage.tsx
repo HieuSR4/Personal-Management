@@ -8,6 +8,7 @@ import {
   subscribeToBudgets,
   subscribeToSources,
   subscribeToTransactions,
+  updateSource,
   updateTransaction,
 } from '../services/dataService'
 import { saveTask, saveTransaction } from '../services/saveService'
@@ -34,12 +35,15 @@ const EXPENSE_CATEGORIES: { key: string; label: string; color: string }[] = [
   { key: 'Đi lại', label: 'Đi lại', color: '#f59e0b' },
   { key: 'Hóa đơn', label: 'Hóa đơn', color: '#0ea5e9' },
   { key: 'Mua sắm', label: 'Mua sắm', color: '#8b5cf6' },
+  { key: 'Thời trang / Làm đẹp', label: 'Thời trang / Làm đẹp', color: '#ec4899' },
   { key: 'Sức khỏe', label: 'Sức khỏe', color: '#14b8a6' },
   { key: 'Giải trí', label: 'Giải trí', color: '#f97316' },
   { key: 'Giáo dục', label: 'Giáo dục', color: '#22c55e' },
   { key: 'Nhà cửa', label: 'Nhà cửa', color: '#64748b' },
   { key: 'Đầu tư', label: 'Đầu tư', color: '#046223ff' },
   { key: 'Du lịch', label: 'Du lịch', color: '#06b6d4' },
+  { key: 'Rút tiền', label: 'Rút tiền', color: '#24bf79' },
+  { key: 'Chi phí nhà cửa', label: 'Chi phí nhà cửa', color: '#046223ff' },
   { key: 'Khác', label: 'Khác', color: '#475569' },
 ]
 const INCOME_CATEGORIES: { key: string; label: string; color: string }[] = [
@@ -310,6 +314,10 @@ export function FinancePage() {
   const [sourceInputs, setSourceInputs] = useState<Record<string, string>>({})
   const [sourceSaving, setSourceSaving] = useState<Record<string, boolean>>({})
   const [sourceExpanded, setSourceExpanded] = useState<Record<string, boolean>>({})
+  const [sourceEditInputs, setSourceEditInputs] = useState<Record<string, string>>({})
+  const [sourceEditSaving, setSourceEditSaving] = useState<Record<string, boolean>>({})
+  const [sourceEditExpanded, setSourceEditExpanded] = useState<Record<string, boolean>>({})
+  const [sourceEditErrors, setSourceEditErrors] = useState<Record<string, string | null>>({})
   const [budgetsExpanded, setBudgetsExpanded] = useState(false)
   const [usdtVndRate, setUsdtVndRate] = useState<number | null>(null)
   const [usdtRateUpdatedAt, setUsdtRateUpdatedAt] = useState<string | null>(null)
@@ -322,6 +330,7 @@ export function FinancePage() {
   const [transactionCategoryFilter, setTransactionCategoryFilter] = useState<string>('all')
   const [transactionStartDateFilter, setTransactionStartDateFilter] = useState<string>('')
   const [transactionEndDateFilter, setTransactionEndDateFilter] = useState<string>('')
+  const [transactionPageIndex, setTransactionPageIndex] = useState(0)
   const isMountedRef = useRef(true)
 
   const fetchUsdtRate = useCallback(async () => {
@@ -722,6 +731,30 @@ export function FinancePage() {
     )
   }, [sortedTransactions, transactionCategoryFilter, transactionDateRange, hasTransactionDateFilter])
 
+  const transactionMonths = useMemo(() => {
+    const seen = new Set<string>()
+    const months: string[] = []
+    filteredTransactions.forEach((transaction) => {
+      const key = toMonthKey(new Date(transaction.createdAt))
+      if (!key || seen.has(key)) return
+      seen.add(key)
+      months.push(key)
+    })
+    return months
+  }, [filteredTransactions])
+
+  useEffect(() => {
+    setTransactionPageIndex(0)
+  }, [transactionMonths])
+
+  const currentTransactionMonthKey = transactionMonths[transactionPageIndex] ?? ''
+  const paginatedTransactions = useMemo(() => {
+    if (!currentTransactionMonthKey) return filteredTransactions
+    return filteredTransactions.filter(
+      (transaction) => toMonthKey(new Date(transaction.createdAt)) === currentTransactionMonthKey,
+    )
+  }, [currentTransactionMonthKey, filteredTransactions])
+
   const filteredDateExpenseTotal = useMemo(() => {
     if (!hasTransactionDateFilter) return 0
     return filteredTransactions.reduce((total, transaction) => {
@@ -898,6 +931,80 @@ export function FinancePage() {
       setError('Không thể nạp tiền vào nguồn này.')
     } finally {
       setSourceSaving((prev) => ({ ...prev, [s.id]: false }))
+    }
+  }
+
+  const toggleSourceEdit = (source: MoneySource) => {
+    const currentBalance = sourceBalances.get(source.key) ?? Number(source.initialBalance || 0)
+    const isBinance = source.key === 'Binance'
+    const defaultValue = isBinance
+      ? usdtVndRate
+        ? formatUsdtAmount(Number((currentBalance / usdtVndRate).toFixed(5)))
+        : currentBalance.toLocaleString('vi-VN', { maximumFractionDigits: 5 })
+      : currentBalance.toLocaleString('vi-VN')
+
+    setSourceExpanded((prev) => ({ ...prev, [source.id]: false }))
+    setSourceEditErrors((prev) => ({ ...prev, [source.id]: null }))
+    setSourceEditInputs((prev) => ({
+      ...prev,
+      [source.id]: prev[source.id] ?? defaultValue,
+    }))
+    setSourceEditExpanded((prev) => ({ ...prev, [source.id]: !prev[source.id] }))
+  }
+
+  const handleUpdateSourceBalance = async (source: MoneySource) => {
+    const raw = sourceEditInputs[source.id] ?? ''
+    const trimmed = raw.trim()
+    const isBinance = source.key === 'Binance'
+
+    if (!trimmed) {
+      setSourceEditErrors((prev) => ({ ...prev, [source.id]: 'Ban can nhap so tien' }))
+      return
+    }
+
+    if (!user) {
+      setSourceEditErrors((prev) => ({ ...prev, [source.id]: 'Ban chua dang nhap.' }))
+      return
+    }
+
+    let desiredBalance = 0
+    let usdtAmount = 0
+
+    if (isBinance) {
+      usdtAmount = parseUsdtAmount(trimmed)
+      if (usdtAmount > 0 && !usdtVndRate) {
+        setSourceEditErrors((prev) => ({
+          ...prev,
+          [source.id]: 'Chưa có tỷ giá USDT/VND. Vui lòng cập nhật tỷ giá.',
+        }))
+        if (!usdtRateLoading) fetchUsdtRate()
+        return
+      }
+      desiredBalance = usdtVndRate ? Number((usdtAmount * usdtVndRate).toFixed(5)) : 0
+    } else {
+      desiredBalance = toNumber(trimmed)
+    }
+
+    const initialBalance = Number(source.initialBalance || 0)
+    const currentBalance = sourceBalances.get(source.key) ?? initialBalance
+    const deltaFromTransactions = currentBalance - initialBalance
+    const nextInitialBalance = desiredBalance - deltaFromTransactions
+
+    setSourceEditErrors((prev) => ({ ...prev, [source.id]: null }))
+    setSourceEditSaving((prev) => ({ ...prev, [source.id]: true }))
+
+    try {
+      await updateSource(user.uid, source.id, { initialBalance: nextInitialBalance })
+      setSourceEditExpanded((prev) => ({ ...prev, [source.id]: false }))
+      setSourceEditInputs((prev) => ({ ...prev, [source.id]: '' }))
+    } catch (e) {
+      console.error('Failed to update source balance', e)
+      setSourceEditErrors((prev) => ({
+        ...prev,
+        [source.id]: 'Khong the cap nhat so du nguon nay.',
+      }))
+    } finally {
+      setSourceEditSaving((prev) => ({ ...prev, [source.id]: false }))
     }
   }
 
@@ -1372,19 +1479,30 @@ export function FinancePage() {
           <ul className="list-sources" style={{ listStyle: 'none', margin: 0, padding: 0, display: 'grid', gap: 12, gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))' }}>
             {sources.map((s) => {
               const bal = sourceBalances.get(s.key) ?? (s.initialBalance || 0)
+              const initial = Number(s.initialBalance || 0)
               const key = s.key as keyof typeof LOGOS
               const logo = LOGOS[key]
               const isBinance = s.key === 'Binance'
+              const deltaFromTransactions = bal - initial
+              const formattedDelta = isBinance
+                ? deltaFromTransactions.toLocaleString('vi-VN', { maximumFractionDigits: 5 })
+                : deltaFromTransactions.toLocaleString('vi-VN')
               const rawInput = sourceInputs[s.id] ?? ''
               const usdtInputAmount = isBinance ? parseUsdtAmount(rawInput) : 0
               const convertedPreview =
                 isBinance && usdtVndRate
                   ? Number((usdtInputAmount * usdtVndRate).toFixed(5))
                   : 0
+              const editInput = sourceEditInputs[s.id] ?? ''
+              const editPreview = isBinance && usdtVndRate
+                ? Number((parseUsdtAmount(editInput) * usdtVndRate).toFixed(5))
+                : toNumber(editInput)
               const formattedBalance = isBinance
                 ? bal.toLocaleString('vi-VN', { maximumFractionDigits: 5 })
                 : bal.toLocaleString('vi-VN')
               const disableDeposit = !!sourceSaving[s.id] || (isBinance && !usdtVndRate)
+              const disableEditSave = !!sourceEditSaving[s.id]
+              const editError = sourceEditErrors[s.id]
               return (
                 <li key={s.id} style={{ border: '1px solid #e2e8f0', borderRadius: 12, padding: 12, display: 'grid', gridTemplateColumns: '1fr auto', gap: 12, alignItems: 'center' }}>
                   <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
@@ -1402,27 +1520,43 @@ export function FinancePage() {
                   </div>
                   <div className="source-actions">
                     <div>
-                      <span style={{ display: 'block', fontSize: '0.85rem', color: '#64748b' }}>Số dư</span>
                       <strong className={bal >= 0 ? 'positive' : 'negative'}>{formattedBalance} VND</strong>
                       {isBinance && (
                         <span className="source-balance-hint">
                           {usdtVndRate
-                            ? `Tỷ giá 1 USDT ≈ ${usdtVndRate.toLocaleString('vi-VN', { maximumFractionDigits: 0 })} VND`
+                            ? `Tỷ giá 1 USDT ~= ${usdtVndRate.toLocaleString('vi-VN', { maximumFractionDigits: 0 })} VND`
                             : usdtRateLoading
                               ? 'Đang tải tỷ giá USDT/VND...'
                               : 'Chưa có tỷ giá USDT/VND'}
                         </span>
                       )}
                     </div>
-                    <button
-                      type="button"
-                      title="Nạp vào nguồn"
-                      aria-label={`Nạp vào ${s.name}`}
-                      onClick={() => setSourceExpanded((prev) => ({ ...prev, [s.id]: !prev[s.id] }))}
-                      className="icon-btn source-add-btn"
-                    >
-                      +
-                    </button>
+                    <div style={{ display: 'flex', gap: 8 }}>
+                      <button
+                        type="button"
+                        title="Nạp vào nguồn"
+                        aria-label={`Nạp vào ${s.name}`}
+                        onClick={() => {
+                          setSourceEditExpanded((prev) => ({ ...prev, [s.id]: false }))
+                          setSourceExpanded((prev) => ({ ...prev, [s.id]: !prev[s.id] }))
+                        }}
+                        className="icon-btn source-add-btn"
+                      >
+                        +
+                      </button>
+                      <button
+                        type="button"
+                        title="Chỉnh sửa số dư nguồn"
+                        aria-label={`Chỉnh sửa số dư ${s.name}`}
+                        onClick={() => toggleSourceEdit(s)}
+                        className="icon-btn source-add-btn"
+                      >
+                        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+                          <path d="M3 17.25V21h3.75l11.02-11.02a1.5 1.5 0 0 0 0-2.12l-2.63-2.63a1.5 1.5 0 0 0-2.12 0L3 17.25Z" fill="currentColor"/>
+                          <path d="M14.75 6.25 17.75 9.25" fill="currentColor"/>
+                        </svg>
+                      </button>
+                    </div>
                   </div>
                   {sourceExpanded[s.id] && (
                     <form
@@ -1434,7 +1568,7 @@ export function FinancePage() {
                         inputMode="decimal"
                         autoFocus
                         className="source-deposit-input"
-                        placeholder={isBinance ? 'Số USDT nạp' : 'Số tiền nạp'}
+                        placeholder={isBinance ? 'Số USDT nạp vào' : 'Số tiền nạp vào'}
                         value={sourceInputs[s.id] ?? ''}
                         onChange={(e) =>
                           setSourceInputs((prev) => ({
@@ -1454,7 +1588,7 @@ export function FinancePage() {
                         }
                       />
                       <button type="submit" disabled={disableDeposit}>
-                        {sourceSaving[s.id] ? 'Đang nạp...' : 'Nạp'}
+                        {sourceSaving[s.id] ? 'Đang nạp...' : 'Nạp vào nguồn'}
                       </button>
                       {isBinance && (
                         <div className="source-deposit-meta">
@@ -1464,8 +1598,8 @@ export function FinancePage() {
                               {usdtVndRate
                                 ? `1 USDT ≈ ${usdtVndRate.toLocaleString('vi-VN', { maximumFractionDigits: 0 })} VND`
                                 : usdtRateLoading
-                                  ? 'Đang tải...'
-                                  : 'Chưa có dữ liệu'}
+                                  ? 'Đang tải tỷ giá USDT/VND...'
+                                  : 'Chưa có tỷ giá USDT/VND'}
                             </strong>
                             <button
                               type="button"
@@ -1489,6 +1623,53 @@ export function FinancePage() {
                           )}
                         </div>
                       )}
+                    </form>
+                  )}
+                  {sourceEditExpanded[s.id] && (
+                    <form
+                      onSubmit={(e) => { e.preventDefault(); handleUpdateSourceBalance(s) }}
+                      className="source-deposit-form"
+                    >
+                      <input
+                        type="text"
+                        inputMode={isBinance ? 'decimal' : 'numeric'}
+                        className="source-deposit-input"
+                        placeholder={isBinance ? 'USDT muốn sửa' : 'Số dư muốn sửa'}
+                        value={editInput}
+                        onChange={(e) =>
+                          setSourceEditInputs((prev) => ({
+                            ...prev,
+                            [s.id]: isBinance
+                              ? sanitizeUsdtInput(e.target.value || '')
+                              : (e.target.value || '').replace(/[^\d.,\s]/g, ''),
+                          }))
+                        }
+                        onBlur={(e) =>
+                          setSourceEditInputs((prev) => ({
+                            ...prev,
+                            [s.id]: isBinance
+                              ? normalizeUsdtInput(e.target.value || '')
+                              : formatAmount(e.target.value || ''),
+                          }))
+                        }
+                      />
+                      <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
+                        <button type="submit" disabled={disableEditSave}>
+                          {disableEditSave ? 'Đang lưu...' : 'Lưu số dư'}
+                        </button>
+                      </div>
+                      {editError && <span className="source-rate-error">{editError}</span>}
+                      {isBinance && !usdtVndRate && (
+                        <span className="source-rate-error">Chưa có tỷ giá USDT/VND</span>
+                      )}
+                      {editInput.trim() && (
+                        <span className="source-rate-preview">
+                          Mục tiêu: <strong>{editPreview.toLocaleString('vi-VN', { maximumFractionDigits: isBinance ? 5 : 0 })} VND</strong>
+                        </span>
+                      )}
+                      <span className="source-balance-hint">
+                        Cập nhật này thay đổi số dư hiện thị, các giao dịch đã ghi vẫn giữ nguyên.
+                      </span>
                     </form>
                   )}
                 </li>
@@ -1970,10 +2151,10 @@ export function FinancePage() {
                         const income = entry?.income ?? 0
                         const expense = entry?.expense ?? 0
                         const count = entry?.count ?? 0
-        const incomeDetails = entry?.incomeDetails ?? []
-        const expenseDetails = entry?.expenseDetails ?? []
-        const tooltipDate = cell.date.toLocaleDateString('vi-VN', { day: '2-digit', month: '2-digit', year: 'numeric' })
-        const hasTransactions = incomeDetails.length > 0 || expenseDetails.length > 0
+                        const incomeDetails = entry?.incomeDetails ?? []
+                        const expenseDetails = entry?.expenseDetails ?? []
+                        const tooltipDate = cell.date.toLocaleDateString('vi-VN', { day: '2-digit', month: '2-digit', year: 'numeric' })
+                        const hasTransactions = incomeDetails.length > 0 || expenseDetails.length > 0
                         const hasData = income > 0 || expense > 0
                         const isToday = dayKey === todayKey
                         const classNames = ['calendar-day']
@@ -2235,7 +2416,7 @@ export function FinancePage() {
                     onChange={(event) => setTransactionStartDateFilter(event.target.value)}
                     aria-label="Ngày bắt đầu"
                   />
-                  <span className="transaction-filter-range-separator">–</span>
+                  <span className="transaction-filter-range-separator">-</span>
                   <input
                     id="transaction-date-end-filter"
                     type="date"
@@ -2261,6 +2442,43 @@ export function FinancePage() {
               </button>
             )}
           </div>
+          {transactionMonths.length > 0 && (
+            <div
+              className="transaction-pagination"
+              role="navigation"
+              aria-label="Phân trang giao dịch theo tháng"
+              style={{ display: 'flex', alignItems: 'center', gap: 12, flexWrap: 'wrap', marginTop: '20px' }}
+            >
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+                <span style={{ fontSize: '0.9rem', color: '#64748b' }}>
+                  Trang {transactionPageIndex + 1}/{transactionMonths.length}
+                </span>
+                <strong>{formatBudgetMonthLabel(currentTransactionMonthKey || getDefaultBudgetMonth())}</strong>
+              </div>
+              <div style={{ display: 'flex', gap: 8, alignItems: 'center', marginTop: '15px' }}>
+                <button
+                  type="button"
+                  className="icon-btn"
+                  onClick={() => setTransactionPageIndex((prev) => Math.max(prev - 1, 0))}
+                  disabled={transactionPageIndex === 0}
+                  title="Xem tháng mới hơn"
+                  aria-label="Xem tháng mới hơn"
+                >
+                  &lt;
+                </button>
+                <button
+                  type="button"
+                  className="icon-btn"
+                  onClick={() => setTransactionPageIndex((prev) => Math.min(prev + 1, transactionMonths.length - 1))}
+                  disabled={transactionPageIndex >= transactionMonths.length - 1}
+                  title="Xem tháng cũ hơn"
+                  aria-label="Xem tháng cũ hơn"
+                >
+                  &gt;
+                </button>
+              </div>
+            </div>
+          )}
         </div>
         {hasTransactionDateFilter && (
           <div className="transaction-filter-summary" role="status">
@@ -2272,9 +2490,11 @@ export function FinancePage() {
           <p>Chưa có giao dịch nào. Hãy thêm giao dịch đầu tiên của bạn.</p>
           ) : filteredTransactions.length === 0 ? (
           <p>Không có giao dịch nào trong danh mục này.</p>
+        ) : paginatedTransactions.length === 0 ? (
+          <p>Không có giao dịch trong tháng này.</p>
         ) : (
           <ul>
-            {filteredTransactions.map((transaction) => (
+            {paginatedTransactions.map((transaction) => (
               <li key={transaction.id} className={`item ${transaction.type}`}>
                 <div>
                   <strong>{getDisplayCategory(transaction)}</strong>

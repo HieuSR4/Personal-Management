@@ -1940,7 +1940,7 @@ textarea {
 }
 
 .transaction-filter-reset {
-  padding: 9px 18px;
+  padding: 15px 18px;
   border-radius: 12px;
   border: 1px solid rgba(148, 163, 184, 0.26);
   background: linear-gradient(135deg, rgba(15, 23, 42, 0.6), rgba(30, 41, 59, 0.75));
