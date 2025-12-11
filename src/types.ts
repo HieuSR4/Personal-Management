@@ -45,3 +45,15 @@ export type Budget = {
   createdAt: string
   updatedAt?: string
 }
+
+export type InvestmentTrade = {
+  id: string
+  asset?: string
+  quantity: number
+  price: number
+  fee?: number
+  note?: string
+  createdAt: string
+  updatedAt?: string
+  sortTimestamp?: number
+}

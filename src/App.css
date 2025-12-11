@@ -442,6 +442,7 @@
 .form-actions {
   display: flex;
   gap: 12px;
+  margin-top: 10px;
 }
 
 /* Badges for labels like transaction source */

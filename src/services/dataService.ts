@@ -10,7 +10,7 @@
   updateDoc,
 } from 'firebase/firestore'
 import { db } from '../lib/firebase'
-import type { Note, Task, Transaction, MoneySource, Budget } from '../types'
+import type { Note, Task, Transaction, MoneySource, Budget, InvestmentTrade } from '../types'
 
 type Unsubscribe = () => void
 
@@ -20,7 +20,7 @@ type FirestoreCallback<T extends FirestoreItem> = (items: T[]) => void
 
 function collectionPath(
   userId: string,
-  key: 'transactions' | 'tasks' | 'notes' | 'sources' | 'budgets',
+  key: 'transactions' | 'tasks' | 'notes' | 'sources' | 'budgets' | 'investmentTrades',
 ) {
   if (!db) throw new Error('Firebase is not initialized')
   return collection(db, 'users', userId, key)
@@ -91,6 +91,61 @@ export function subscribeToTransactions(userId: string, callback: FirestoreCallb
     (error) => {
       const anyErr = error as { code?: string; message?: string }
       console.warn('subscribeToTransactions error:', anyErr?.code, anyErr?.message)
+    },
+  )
+}
+
+export function subscribeToInvestmentTrades(
+  userId: string,
+  callback: FirestoreCallback<InvestmentTrade>,
+): Unsubscribe {
+  const q = query(collectionPath(userId, 'investmentTrades'), orderBy('createdAt', 'desc'))
+  const arrivalTimes = new Map<string, number>()
+  return onSnapshot(
+    q,
+    (snapshot) => {
+      const now = Date.now()
+      const initialLoad = arrivalTimes.size === 0
+      const seenIds = new Set<string>()
+
+      const items = snapshot.docs.map((snap, index) => {
+        const data = snap.data() as Record<string, unknown>
+        const createdAt = toISODate(data.createdAt)
+        const updatedAt = data.updatedAt ? toISODate(data.updatedAt) : undefined
+
+        if (!arrivalTimes.has(snap.id)) {
+          const offset = initialLoad ? -index : snapshot.docs.length - index
+          arrivalTimes.set(snap.id, now + offset)
+        }
+        const arrivalTime = arrivalTimes.get(snap.id) ?? now
+        const sortTimestamp = Math.max(parseTimestamp(createdAt), parseTimestamp(updatedAt), arrivalTime)
+
+        seenIds.add(snap.id)
+
+        return {
+          id: snap.id,
+          asset: data.asset ? String(data.asset) : undefined,
+          quantity: Number(data.quantity) || 0,
+          price: Number(data.price) || 0,
+          fee: data.fee !== undefined ? Number(data.fee) || 0 : undefined,
+          note: data.note ? String(data.note) : undefined,
+          createdAt,
+          updatedAt,
+          sortTimestamp,
+        }
+      })
+
+      if (!initialLoad) {
+        arrivalTimes.forEach((_, key) => {
+          if (!seenIds.has(key)) arrivalTimes.delete(key)
+        })
+      }
+
+      callback(items)
+    },
+    (error) => {
+      const anyErr = error as { code?: string; message?: string }
+      console.warn('subscribeToInvestmentTrades error:', anyErr?.code, anyErr?.message)
     },
   )
 }
@@ -211,6 +266,39 @@ export function updateTransaction(userId: string, id: string, update: Partial<Om
 
 export function deleteTransaction(userId: string, id: string) {
   return deleteDoc(doc(collectionPath(userId, 'transactions'), id))
+}
+
+export function addInvestmentTrade(
+  userId: string,
+  trade: Omit<InvestmentTrade, 'id' | 'updatedAt' | 'sortTimestamp'>,
+) {
+  const payload: Record<string, unknown> = {
+    quantity: Number(trade.quantity) || 0,
+    price: Number(trade.price) || 0,
+    fee: trade.fee !== undefined ? Number(trade.fee) || 0 : 0,
+    createdAt: trade.createdAt ?? serverTimestamp(),
+  }
+  if (trade.asset) payload.asset = trade.asset
+  if (trade.note) payload.note = trade.note
+  return addDoc(collectionPath(userId, 'investmentTrades'), payload)
+}
+
+export function updateInvestmentTrade(
+  userId: string,
+  id: string,
+  update: Partial<Omit<InvestmentTrade, 'id'>>,
+) {
+  return updateDoc(doc(collectionPath(userId, 'investmentTrades'), id), {
+    ...update,
+    quantity: update.quantity !== undefined ? Number(update.quantity) : undefined,
+    price: update.price !== undefined ? Number(update.price) : undefined,
+    fee: update.fee !== undefined ? Number(update.fee) : undefined,
+    updatedAt: serverTimestamp(),
+  })
+}
+
+export function deleteInvestmentTrade(userId: string, id: string) {
+  return deleteDoc(doc(collectionPath(userId, 'investmentTrades'), id))
 }
 
 export function addSource(
