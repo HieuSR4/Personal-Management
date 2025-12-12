@@ -19,10 +19,17 @@ function normalizeForComparison(value: string) {
 
 const INVESTMENT_CATEGORY_KEY = normalizeForComparison(INVESTMENT_CATEGORY_LABEL)
 
-function formatDate(value: string) {
-  const date = new Date(value)
-  if (Number.isNaN(date.getTime())) return value
+function formatDate(value: string | Date) {
+  const date = typeof value === 'string' ? new Date(value) : value
+  if (Number.isNaN(date.getTime())) return typeof value === 'string' ? value : ''
   return date.toLocaleDateString('vi-VN')
+}
+
+function toDateInputValue(value: string | Date | undefined) {
+  if (!value) return new Date().toISOString().slice(0, 10)
+  const date = typeof value === 'string' ? new Date(value) : value
+  if (Number.isNaN(date.getTime())) return new Date().toISOString().slice(0, 10)
+  return date.toISOString().slice(0, 10)
 }
 
 type TradeFormState = {
@@ -89,9 +96,9 @@ export function InvestmentPage() {
   const lastDepositDate = sortedInvestmentDeposits[0]?.createdAt ?? null
 
   const sortedTrades = useMemo(() => {
-    const parseTime = (value?: string) => {
+    const parseTime = (value?: string | Date) => {
       if (!value) return 0
-      const time = new Date(value).getTime()
+      const time = value instanceof Date ? value.getTime() : new Date(value).getTime()
       return Number.isNaN(time) ? 0 : time
     }
     const getSortKey = (trade: InvestmentTrade) =>
@@ -170,7 +177,7 @@ export function InvestmentPage() {
       price: String(trade.price),
       fee: trade.fee !== undefined ? String(trade.fee) : '',
       note: trade.note || '',
-      date: trade.createdAt ? trade.createdAt.slice(0, 10) : new Date().toISOString().slice(0, 10),
+      date: toDateInputValue(trade.createdAt as string | Date | undefined),
     })
     setTradeError(null)
   }
@@ -315,7 +322,9 @@ export function InvestmentPage() {
                         SL: {trade.quantity} • Giá: {trade.price.toLocaleString('vi-VN')} VND
                         {fee ? ` • Phí: ${fee.toLocaleString('vi-VN')} VND` : ''}
                       </span>
-                      <time dateTime={trade.createdAt}>{formatDate(trade.createdAt)}</time>
+                      <time dateTime={new Date(trade.createdAt).toISOString()}>
+                        {formatDate(trade.createdAt)}
+                      </time>
                     </div>
                     {trade.note ? <span className="note-line">{trade.note}</span> : null}
                     <div className="transaction-meta">
@@ -346,7 +355,9 @@ export function InvestmentPage() {
                   <strong>{INVESTMENT_CATEGORY_LABEL}</strong>
                   <div className="note-line">
                     {transaction.note && <span>{transaction.note} - </span>}
-                    <time dateTime={transaction.createdAt}>{formatDate(transaction.createdAt)}</time>
+                    <time dateTime={new Date(transaction.createdAt).toISOString()}>
+                      {formatDate(transaction.createdAt)}
+                    </time>
                   </div>
                   <div className="transaction-meta">
                     <span className={`amount ${transaction.type}`}>
