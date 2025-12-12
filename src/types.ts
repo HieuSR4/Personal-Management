@@ -53,7 +53,7 @@ export type InvestmentTrade = {
   price: number
   fee?: number
   note?: string
-  createdAt: string
-  updatedAt?: string
+  createdAt: string | Date
+  updatedAt?: string | Date
   sortTimestamp?: number
 }
