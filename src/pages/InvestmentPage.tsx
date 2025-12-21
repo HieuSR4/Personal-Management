@@ -25,13 +25,6 @@ function formatDate(value: string | Date) {
   return date.toLocaleDateString('vi-VN')
 }
 
-function toDateInputValue(value: string | Date | undefined) {
-  if (!value) return new Date().toISOString().slice(0, 10)
-  const date = typeof value === 'string' ? new Date(value) : value
-  if (Number.isNaN(date.getTime())) return new Date().toISOString().slice(0, 10)
-  return date.toISOString().slice(0, 10)
-}
-
 type TradeFormState = {
   asset: string
   quantity: string
@@ -167,19 +160,6 @@ export function InvestmentPage() {
     } finally {
       setSavingTrade(false)
     }
-  }
-
-  const startEditingTrade = (trade: InvestmentTrade) => {
-    setEditingTradeId(trade.id)
-    setTradeForm({
-      asset: trade.asset || 'Quỹ ETF',
-      quantity: String(trade.quantity),
-      price: String(trade.price),
-      fee: trade.fee !== undefined ? String(trade.fee) : '',
-      note: trade.note || '',
-      date: toDateInputValue(trade.createdAt as string | Date | undefined),
-    })
-    setTradeError(null)
   }
 
   return (
@@ -331,11 +311,6 @@ export function InvestmentPage() {
                     <div className="transaction-meta">
                       <span className="amount expense">-{total.toLocaleString('vi-VN')} VND</span>
                     </div>
-                  </div>
-                  <div className="item-actions">
-                    <button type="button" onClick={() => startEditingTrade(trade)} disabled={savingTrade}>
-                      Sua
-                    </button>
                   </div>
                 </li>
               )
