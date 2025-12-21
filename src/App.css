@@ -278,6 +278,30 @@
   border: 1px solid rgba(148, 163, 184, 0.14);
 }
 
+.investment-history-grid {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+  gap: 24px;
+}
+
+.investment-history-card {
+  min-width: 0;
+}
+
+.investment-history-card--deposits {
+  order: 1;
+}
+
+.investment-history-card--trades {
+  order: 2;
+}
+
+@media (max-width: 900px) {
+  .investment-history-grid {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
+
 /* Modal */
 .modal-overlay {
   position: fixed;

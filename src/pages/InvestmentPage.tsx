@@ -42,7 +42,7 @@ type TradeFormState = {
 }
 
 const defaultTradeForm = (): TradeFormState => ({
-  asset: 'Quỹ ETF',
+  asset: 'Quỹ ETF E1VFVN30',
   quantity: '',
   price: '',
   fee: '',
@@ -304,7 +304,8 @@ export function InvestmentPage() {
         </form>
       </div>
 
-      <div className="card list">
+      <div className="investment-history-grid">
+        <div className="card list investment-history-card investment-history-card--trades">
         <h3>Lịch sử lệnh mua</h3>
         {sortedTrades.length === 0 ? (
           <p>Chưa có lệnh mua nào.</p>
@@ -331,11 +332,6 @@ export function InvestmentPage() {
                       <span className="amount expense">-{total.toLocaleString('vi-VN')} VND</span>
                     </div>
                   </div>
-                  <div className="item-actions">
-                    <button type="button" onClick={() => startEditingTrade(trade)}>
-                      Sửa
-                    </button>
-                  </div>
                 </li>
               )
             })}
@@ -343,7 +339,7 @@ export function InvestmentPage() {
         )}
       </div>
 
-      <div className="card list">
+        <div className="card list investment-history-card investment-history-card--deposits">
         <h3>Lịch sử nạp tiền vào đầu tư</h3>
         {sortedInvestmentDeposits.length === 0 ? (
           <p>Chưa có giao dịch nạp tiền cho danh mục đầu tư.</p>
@@ -369,6 +365,7 @@ export function InvestmentPage() {
             ))}
           </ul>
         )}
+        </div>
       </div>
     </section>
   )
