@@ -332,6 +332,11 @@ export function InvestmentPage() {
                       <span className="amount expense">-{total.toLocaleString('vi-VN')} VND</span>
                     </div>
                   </div>
+                  <div className="item-actions">
+                    <button type="button" onClick={() => startEditingTrade(trade)} disabled={savingTrade}>
+                      Sua
+                    </button>
+                  </div>
                 </li>
               )
             })}
